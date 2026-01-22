@@ -19,22 +19,30 @@ services:
   synthea:
     build:
       context: .
-      dockerfile: ./dockerfiles/synthea.Dockerfile
+      dockerfile: ./synthea.Dockerfile
     volumes:
       - ./data:/output
     command: -p 100 # Generates 100 synthetic patients
 
-  # 4. DuckDB Processor (Python environment)
-  processor:
-    image: python:3.11-slim
-    volumes:
-      - .:/app
-    working_dir: /app
+  # 4. Dagster (Orchestrator)
+  orchestrator:
+    build:
+      context: ./orchestrator
+    ports: [ "3000:3000" ]
     environment:
+      - DAGSTER_POSTGRES_USER=postgres
+      - DAGSTER_POSTGRES_PASSWORD=postgres
+      - DAGSTER_POSTGRES_DB=dagster
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password123
       - AWS_ENDPOINT_URL=http://minio:9000
-    command: tail -f /dev/null # Keeps container open for execution
+    volumes:
+      - ./orchestrator:/opt/dagster/app/orchestrator
+      - ./data:/opt/dagster/app/data
+    depends_on:
+      - minio
+      - synthea
+
   dbt:
     image: ghcr.io/dbt-labs/dbt-duckdb:latest
     volumes:
@@ -43,5 +51,19 @@ services:
     working_dir: /usr/app
     environment:
       - S3_ENDPOINT=minio:9000
+    depends_on:
+      - minio
+
+  # 6. Streamlit Dashboard
+  dashboard:
+    build:
+      context: ./dashboard
+    ports: [ "8501:8501" ]
+    volumes:
+      - ./dashboard:/app
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password123
+      - AWS_ENDPOINT_URL=http://minio:9000
     depends_on:
       - minio

@@ -1,4 +1,4 @@
-FROM openjdk:11-jre-slim
+FROM eclipse-temurin:11-jre
 WORKDIR /app
 RUN apt-get update && apt-get install -y wget
 RUN wget https://github.com/synthetichealth/synthea/releases/download/v3.3.0/synthea-with-dependencies.jar -O synthea.jar
