@@ -1,0 +1,47 @@
+services:
+  # 1. S3-Compatible Storage
+  minio:
+    image: minio/minio
+    ports: [ "9000:9000", "9001:9001" ]
+    environment:
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: password123
+    command: server /data --console-address ":9001"
+    volumes:
+      - ./minio_data:/data
+
+  # 2. Iceberg Catalog (Nessie)
+  nessie:
+    image: projectnessie/nessie-server
+    ports: [ "19101:19101" ]
+
+  # 3. Synthea Data Generator
+  synthea:
+    build:
+      context: .
+      dockerfile: ./dockerfiles/synthea.Dockerfile
+    volumes:
+      - ./data:/output
+    command: -p 100 # Generates 100 synthetic patients
+
+  # 4. DuckDB Processor (Python environment)
+  processor:
+    image: python:3.11-slim
+    volumes:
+      - .:/app
+    working_dir: /app
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password123
+      - AWS_ENDPOINT_URL=http://minio:9000
+    command: tail -f /dev/null # Keeps container open for execution
+  dbt:
+    image: ghcr.io/dbt-labs/dbt-duckdb:latest
+    volumes:
+      - ./dbt_project:/usr/app
+      - ~/.dbt:/root/.dbt # Mounts your profiles
+    working_dir: /usr/app
+    environment:
+      - S3_ENDPOINT=minio:9000
+    depends_on:
+      - minio
