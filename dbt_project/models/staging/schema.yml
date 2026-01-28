@@ -1,0 +1,12 @@
+# models/staging/schema.yml
+models:
+  - name: stg_fhir_patients
+    columns:
+      - name: patient_id
+        tests:
+          - unique
+          - not_null
+      - name: birth_date
+        tests:
+          - dbt_expectations.expect_column_values_to_be_of_type:
+              column_type: date
