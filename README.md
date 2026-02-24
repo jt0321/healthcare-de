@@ -14,8 +14,9 @@ This project is a local Data Engineering pipeline designed to simulate, ingest, 
 ## Architecture
 
 1.  **Generation**: Synthea container generates synthetic CSV data (patients, encounters, etc.) into a shared volume.
-2.  **Ingestion**: A Python/DuckDB script reads the CSVs and writes them as Iceberg tables to MinIO, committed to the Nessie catalog.
-3.  **Transformation**: dbt (running with DuckDB) transforms the raw Iceberg tables into analytical models.
+2.  **Orchestration**: Apache Airflow operates DAGs that orchestrate the pipeline logic.
+3.  **Ingestion**: An Airflow task uses DuckDB to read the CSVs and write them as Iceberg tables to MinIO.
+4.  **Transformation**: dbt (running with DuckDB) transforms the raw Iceberg tables into analytical models.
 
 ## Prerequisites
 
@@ -26,13 +27,19 @@ This project is a local Data Engineering pipeline designed to simulate, ingest, 
 
 ### 1. Start the Environment
 
+First, define your environment variables by copying the example file:
+
+```bash
+cp env.example .env
+```
+
 Spin up the entire stack using Docker Compose:
 
 ```bash
 docker-compose up -d
 ```
 
-This will start MinIO, Nessie, the Synthea generator, and the processor/dbt containers.
+This will start MinIO, Nessie, the Synthea generator, Postgres, and the Airflow containers.
 
 ### 2. Generate Data
 
@@ -44,11 +51,7 @@ docker-compose logs -f synthea
 
 ### 3. Ingest Data to Iceberg
 
-Once data is generated, run the ingestion script within the `processor` container. This converts the CSVs to Iceberg tables in MinIO:
-
-```bash
-docker-compose exec processor python scripts/ingest_to_iceberg.py
-```
+Once data is generated, log in to the Airflow UI at [http://localhost:8080](http://localhost:8080) (user: `admin`, password: `admin`). Enable and trigger the `healthcare_data_pipeline` DAG to execute data ingestion.
 
 ### 4. Run dbt Transformations
 
@@ -63,8 +66,9 @@ docker-compose run dbt run
 ## Project Structure
 
 -   `docker-compose.yml`: Defines the multi-container Docker application.
--   `synthea.Dockerfile`: Custom Dockerfile for the Synthea service.
--   `scripts/`: Python scripts for data ingestion (e.g., `ingest_to_iceberg.py`).
+-   `Dockerfile.airflow`: Custom Dockerfile for the Airflow services.
+-   `Dockerfile.synthea`: Custom Dockerfile for the Synthea service.
+-   `dags/`: Airflow DAG logic for data orchestration.
 -   `dbt_project/`: The dbt project directory containing models and configuration.
 -   `data/`: Shared volume where Synthea outputs raw CSV files (git-ignored).
 -   `minio_data/`: Local storage for MinIO (git-ignored).
@@ -75,6 +79,9 @@ docker-compose run dbt run
     -   User: `admin`
     -   Password: `password123`
 -   **Nessie API**: [http://localhost:19101/api/v1](http://localhost:19101/api/v1)
+-   **Airflow UI**: [http://localhost:8080](http://localhost:8080)
+    -   User: `admin`
+    -   Password: `admin`
 
 ## Notes
 

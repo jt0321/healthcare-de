@@ -1,47 +1,87 @@
 services:
-  # 1. S3-Compatible Storage
   minio:
     image: minio/minio
     ports: [ "9000:9000", "9001:9001" ]
     environment:
-      MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: password123
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     command: server /data --console-address ":9001"
     volumes:
       - ./minio_data:/data
 
-  # 2. Iceberg Catalog (Nessie)
   nessie:
     image: projectnessie/nessie-server
     ports: [ "19101:19101" ]
-
-  # 3. Synthea Data Generator
   synthea:
     build:
       context: .
-      dockerfile: ./synthea.Dockerfile
+      dockerfile: Dockerfile.synthea
     volumes:
       - ./data:/output
     command: -p 100 # Generates 100 synthetic patients
 
-  # 4. Dagster (Orchestrator)
-  orchestrator:
-    build:
-      context: ./orchestrator
-    ports: [ "3000:3000" ]
+  postgres:
+    image: postgres:13
     environment:
-      - DAGSTER_POSTGRES_USER=postgres
-      - DAGSTER_POSTGRES_PASSWORD=postgres
-      - DAGSTER_POSTGRES_DB=dagster
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+
+  airflow-init:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    depends_on:
+      - postgres
+    environment:
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+      - AIRFLOW__CORE__EXECUTOR=${AIRFLOW__CORE__EXECUTOR}
+    command: >
+      bash -c " airflow db migrate && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com "
+
+  airflow-webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - airflow-init
+      - minio
+      - synthea
+    environment:
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password123
       - AWS_ENDPOINT_URL=http://minio:9000
     volumes:
-      - ./orchestrator:/opt/dagster/app/orchestrator
-      - ./data:/opt/dagster/app/data
+      - ./dags:/opt/airflow/dags
+      - ./data:/opt/airflow/data
+    command: webserver
+
+  airflow-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     depends_on:
+      - postgres
+      - airflow-init
       - minio
       - synthea
+    environment:
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
+      - AIRFLOW__CORE__EXECUTOR=${AIRFLOW__CORE__EXECUTOR}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_ENDPOINT_URL=${AWS_ENDPOINT_URL}
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./data:/opt/airflow/data
+    command: scheduler
 
   dbt:
     image: ghcr.io/dbt-labs/dbt-duckdb:latest
@@ -54,7 +94,6 @@ services:
     depends_on:
       - minio
 
-  # 6. Streamlit Dashboard
   dashboard:
     build:
       context: ./dashboard
