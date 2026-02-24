@@ -13,6 +13,8 @@ This project is a local Data Engineering pipeline designed to simulate, ingest, 
 
 ## Architecture
 
+![Workflow Diagram](./workflow.png)
+
 1.  **Generation**: Synthea container generates synthetic CSV data (patients, encounters, etc.) into a shared volume.
 2.  **Orchestration**: Apache Airflow operates DAGs that orchestrate the pipeline logic.
 3.  **Ingestion**: An Airflow task uses DuckDB to read the CSVs and write them as Iceberg tables to MinIO.
