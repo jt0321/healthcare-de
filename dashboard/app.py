@@ -26,7 +26,7 @@ try:
     con = get_connection()
     st.sidebar.header("Settings")
     
-    # Query Data - Updated to match Dagster asset output path
+    # Query Data - Updated to match Airflow asset output path
     query = "SELECT * FROM iceberg_scan('s3://healthcare/iceberg/patients', allow_moved_paths=true)"
     
     try:
@@ -47,7 +47,7 @@ try:
         st.dataframe(df.head(100))
         
     except Exception as e:
-        st.warning("No data found yet. Run the pipeline in Dagster!")
+        st.warning("No data found yet. Run the pipeline in Airflow!")
         st.error(f"Error details: {e}")
 
 except Exception as e:
