@@ -1,8 +1,0 @@
-dagster
-dagster-webserver
-dagster-docker
-duckdb
-pandas
-pyiceberg
-s3fs
-adlfs

@@ -1,2 +1,8 @@
-/data/
-/minio_data/
+# Synthea generated data (ignored)
+data/
+
+# MinIO data (ignored)
+minio_data/
+
+# Airflow configurations
+.env
