@@ -35,35 +35,54 @@ First, define your environment variables by copying the example file:
 cp env.example .env
 ```
 
-Spin up the entire stack using Docker Compose:
+Spin up the entire stack using the provided Makefile:
 
 ```bash
-docker-compose up -d
+make up
 ```
 
 This will start MinIO, Nessie, the Synthea generator, Postgres, and the Airflow containers.
 
 ### 2. Generate Data
 
-The `synthea` service automatically runs on startup and generates patient data into the `./data` directory. You can check the logs to see progress:
+The `synthea` service automatically runs on startup and generates patient data into the `./data` directory. You can also explicitly run the generator using:
 
 ```bash
-docker-compose logs -f synthea
+make generate-data
 ```
+
+You can check the logs for all services using `make logs` or for specific services using `docker compose logs -f synthea`.
 
 ### 3. Ingest Data to Iceberg
 
-Once data is generated, log in to the Airflow UI at [http://localhost:8080](http://localhost:8080) (user: `admin`, password: `admin`). Enable and trigger the `healthcare_data_pipeline` DAG to execute data ingestion.
+Once data is generated, you can trigger the Airflow pipeline to ingest the data into Iceberg:
+
+```bash
+make trigger-ingest
+```
+
+Alternatively, log in to the Airflow UI at [http://localhost:8080](http://localhost:8080) (user: `admin`, password: `admin`). Enable and trigger the `healthcare_data_pipeline` DAG to execute data ingestion.
 
 ### 4. Run dbt Transformations
 
 Run dbt models to transform the data:
 
 ```bash
-docker-compose run dbt compile
+make dbt-compile
 # or
-docker-compose run dbt run
+make dbt-run
 ```
+### 5. Streamlit Dashboard
+
+To start the Streamlit dashboard and view the analytics:
+
+```bash
+make streamlit
+```
+
+## Makefile Commands
+
+A handy `Makefile` is included to simplify Docker operations. Run `make help` to see all available commands, such as `make down`, `make clean`, `make restart`, etc.
 
 ## Project Structure
 
