@@ -10,15 +10,17 @@ services:
       - ./minio_data:/data
 
   nessie:
-    image: projectnessie/nessie-server
+    image: ghcr.io/projectnessie/nessie:latest
     ports: [ "19101:19101" ]
+    environment:
+      - QUARKUS_HTTP_PORT=19101
   synthea:
     build:
       context: .
       dockerfile: Dockerfile.synthea
     volumes:
       - ./data:/output
-    command: -p 100 # Generates 100 synthetic patients
+    command: -p 100 --exporter.csv.export=true --exporter.fhir.export=false
 
   postgres:
     image: postgres:13
@@ -106,3 +108,18 @@ services:
       - AWS_ENDPOINT_URL=http://minio:9000
     depends_on:
       - minio
+
+  trino:
+    image: trinodb/trino:443
+    ports:
+      - "8082:8080"
+    volumes:
+      - ./trino/catalog:/etc/trino/catalog:ro
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_ENDPOINT_URL=${AWS_ENDPOINT_URL}
+    depends_on:
+      - minio
+      - nessie
+

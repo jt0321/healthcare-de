@@ -80,6 +80,30 @@ To start the Streamlit dashboard and view the analytics:
 make streamlit
 ```
 
+### 6. Querying Data with Trino
+
+You can query the ingested Iceberg tables using **Trino**.
+
+Start the Trino CLI:
+
+```bash
+make trino-cli
+```
+
+Once inside the Trino CLI, register the Iceberg tables ingested by DuckDB into the Nessie catalog (since DuckDB writes file-based Iceberg tables directly to MinIO without catalog registration):
+
+```sql
+-- Register the patients table (find the actual metadata.json filename in MinIO Console)
+CALL iceberg.system.register_table(
+    schema_name => 'default',
+    table_name => 'patients',
+    metadata_file => 's3://healthcare/iceberg/patients/metadata/00000-xxxxx.metadata.json'
+);
+
+-- Query the table
+SELECT * FROM iceberg.default.patients LIMIT 10;
+```
+
 ## Makefile Commands
 
 A handy `Makefile` is included to simplify Docker operations. Run `make help` to see all available commands, such as `make down`, `make clean`, `make restart`, etc.
@@ -91,6 +115,7 @@ A handy `Makefile` is included to simplify Docker operations. Run `make help` to
 -   `Dockerfile.synthea`: Custom Dockerfile for the Synthea service.
 -   `dags/`: Airflow DAG logic for data orchestration.
 -   `dbt_project/`: The dbt project directory containing models and configuration.
+-   `trino/`: Configuration folder containing Trino catalog configurations.
 -   `data/`: Shared volume where Synthea outputs raw CSV files (git-ignored).
 -   `minio_data/`: Local storage for MinIO (git-ignored).
 
@@ -103,6 +128,7 @@ A handy `Makefile` is included to simplify Docker operations. Run `make help` to
 -   **Airflow UI**: [http://localhost:8080](http://localhost:8080)
     -   User: `admin`
     -   Password: `admin`
+-   **Trino Coordinator**: [http://localhost:8082](http://localhost:8082)
 
 ## Notes
 

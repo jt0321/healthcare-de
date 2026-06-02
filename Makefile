@@ -1,4 +1,4 @@
-.PHONY: help up down build restart logs clean ps generate-data airflow-init airflow dbt-compile dbt-run streamlit trigger-ingest
+.PHONY: help up down build restart logs clean ps generate-data airflow-init airflow dbt-compile dbt-run streamlit trigger-ingest trino-cli
 
 # Default target
 help:
@@ -19,6 +19,7 @@ help:
 	@echo "  make dbt-compile     - Compile dbt models"
 	@echo "  make dbt-run         - Run dbt models to transform Iceberg tables"
 	@echo "  make streamlit       - Start the Streamlit dashboard"
+	@echo "  make trino-cli       - Open Trino CLI to query Iceberg tables"
 
 up:
 	docker compose up -d
@@ -64,3 +65,6 @@ dbt-run:
 streamlit:
 	docker compose up -d dashboard
 	docker compose logs -f dashboard
+
+trino-cli:
+	docker compose exec trino trino --catalog iceberg --schema default
