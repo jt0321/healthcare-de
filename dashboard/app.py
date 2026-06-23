@@ -27,7 +27,7 @@ try:
     st.sidebar.header("Settings")
     
     # Query Data - Updated to match Airflow asset output path
-    query = "SELECT * FROM iceberg_scan('s3://healthcare/iceberg/patients', allow_moved_paths=true)"
+    query = "SELECT * FROM iceberg_scan('s3://healthcare/iceberg/default/patients', allow_moved_paths=true)"
     
     try:
         df = con.execute(query).df()

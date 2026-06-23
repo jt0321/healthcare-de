@@ -52,7 +52,7 @@ def ingest_iceberg_data():
     """)
     
     # Copy to Iceberg
-    con.execute("COPY raw_patients TO 's3://healthcare/iceberg/patients' (FORMAT ICEBERG);")
+    con.execute("COPY raw_patients TO 's3://healthcare/iceberg/default/patients' (FORMAT ICEBERG);")
     
     print("Ingestion Complete!")
 

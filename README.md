@@ -6,7 +6,7 @@ This project is a local Data Engineering pipeline designed to simulate, ingest, 
 
 - **Synthea**: Generates synthetic patient health records.
 - **MinIO**: S3-compatible object storage.
-- **Nessie**: Git-like catalog for Iceberg tables.
+- **Apache Polaris**: Iceberg REST catalog.
 - **DuckDB**: In-memory analytical database for data ingestion and processing.
 - **dbt**: Defines data transformation models.
 - **Apache Iceberg**: Open table format for analytic datasets.
@@ -41,7 +41,7 @@ Spin up the entire stack using the provided Makefile:
 make up
 ```
 
-This will start MinIO, Nessie, the Synthea generator, Postgres, and the Airflow containers.
+This will start MinIO, Apache Polaris, the Synthea generator, Postgres, and the Airflow containers.
 
 ### 2. Generate Data
 
@@ -90,7 +90,7 @@ Start the Trino CLI:
 make trino-cli
 ```
 
-Once inside the Trino CLI, register the Iceberg tables ingested by DuckDB into the Nessie catalog (since DuckDB writes file-based Iceberg tables directly to MinIO without catalog registration):
+Once inside the Trino CLI, register the Iceberg tables ingested by DuckDB into the Polaris catalog (since DuckDB writes file-based Iceberg tables directly to MinIO without catalog registration):
 
 ```sql
 -- Register the patients table (find the actual metadata.json filename in MinIO Console)
@@ -124,7 +124,7 @@ A handy `Makefile` is included to simplify Docker operations. Run `make help` to
 -   **MinIO Console**: [http://localhost:9001](http://localhost:9001)
     -   User: `admin`
     -   Password: `password123`
--   **Nessie API**: [http://localhost:19101/api/v1](http://localhost:19101/api/v1)
+-   **Apache Polaris API**: [http://localhost:8181](http://localhost:8181)
 -   **Airflow UI**: [http://localhost:8080](http://localhost:8080)
     -   User: `admin`
     -   Password: `admin`

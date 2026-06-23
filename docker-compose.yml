@@ -9,11 +9,45 @@ services:
     volumes:
       - ./minio_data:/data
 
-  nessie:
-    image: ghcr.io/projectnessie/nessie:latest
-    ports: [ "19101:19101" ]
+  polaris:
+    image: apache/polaris:latest
+    ports:
+      - "8181:8181"
+      - "8182:8182"
     environment:
-      - QUARKUS_HTTP_PORT=19101
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: admin
+      AWS_SECRET_ACCESS_KEY: password123
+      POLARIS_BOOTSTRAP_CREDENTIALS: POLARIS,root,s3cr3t
+      polaris.realm-context.realms: POLARIS
+      quarkus.otel.sdk.disabled: "true"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8182/q/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      - minio
+
+  minio-setup:
+    image: minio/minio
+    entrypoint: /bin/sh
+    command: -c "mc alias set myminio http://minio:9000 admin password123 && mc mb --ignore-existing myminio/healthcare"
+    depends_on:
+      - minio
+
+  polaris-setup:
+    image: alpine:latest
+    depends_on:
+      polaris:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+    volumes:
+      - ./polaris-bootstrap.sh:/polaris-bootstrap.sh:ro
+    entrypoint: ["/bin/sh", "/polaris-bootstrap.sh"]
+
   synthea:
     build:
       context: .
@@ -86,7 +120,9 @@ services:
     command: scheduler
 
   dbt:
-    image: ghcr.io/dbt-labs/dbt-duckdb:latest
+    build:
+      context: .
+      dockerfile: Dockerfile.dbt
     volumes:
       - ./dbt_project:/usr/app
       - ~/.dbt:/root/.dbt # Mounts your profiles
@@ -110,7 +146,7 @@ services:
       - minio
 
   trino:
-    image: trinodb/trino:443
+    image: trinodb/trino:455
     ports:
       - "8082:8080"
     volumes:
@@ -120,6 +156,8 @@ services:
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_ENDPOINT_URL=${AWS_ENDPOINT_URL}
     depends_on:
-      - minio
-      - nessie
+      minio:
+        condition: service_started
+      polaris-setup:
+        condition: service_completed_successfully
 
