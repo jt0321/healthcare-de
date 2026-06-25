@@ -10,5 +10,5 @@ SELECT
     reason_description,
     payer_id,
     total_claim_cost,
-    date_diff('minute', encounter_start, encounter_stop) as encounter_duration_minutes
-FROM iceberg_scan('s3://healthcare/iceberg/default/encounters', allow_moved_paths=true)
+    date_diff('minute', encounter_start, encounter_stop)            AS encounter_duration_minutes
+FROM iceberg.default.encounters

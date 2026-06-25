@@ -2,7 +2,7 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN pip install streamlit duckdb pandas plotly pyiceberg adlfs s3fs
+RUN pip install streamlit trino pandas plotly
 
 COPY . /app
 
