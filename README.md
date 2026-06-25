@@ -1,136 +1,184 @@
-# Health Data Engineering Pipeline
+# Healthcare Data Engineering Pipeline
 
 ## Overview
 
-This project is a local Data Engineering pipeline designed to simulate, ingest, and transform healthcare data. It leverages a modern data stack running entirely in Docker:
+A local data engineering pipeline that generates, ingests, and transforms synthetic healthcare data using a modern open lakehouse stack running entirely in Docker. The pipeline demonstrates two ingestion paths — structured CSV and FHIR R4 — to reflect real-world healthcare data engineering patterns.
 
-- **Synthea**: Generates synthetic patient health records.
-- **MinIO**: S3-compatible object storage.
-- **Apache Polaris**: Iceberg REST catalog.
-- **DuckDB**: In-memory analytical database for data ingestion and processing.
-- **dbt**: Defines data transformation models.
-- **Apache Iceberg**: Open table format for analytic datasets.
+**Stack:**
+
+| Layer | Technology |
+|---|---|
+| Data generation | Synthea (CSV + FHIR R4) |
+| Orchestration | Apache Airflow |
+| Object storage | MinIO (S3-compatible) |
+| Iceberg catalog | Apache Polaris (REST catalog) |
+| Query engine | Trino |
+| Transformation | dbt (dbt-trino) |
+| Dashboard | Streamlit |
 
 ## Architecture
 
 ![Workflow Diagram](./workflow.png)
 
-1.  **Generation**: Synthea container generates synthetic CSV data (patients, encounters, etc.) into a shared volume.
-2.  **Orchestration**: Apache Airflow operates DAGs that orchestrate the pipeline logic.
-3.  **Ingestion**: An Airflow task uses DuckDB to read the CSVs and write them as Iceberg tables to MinIO.
-4.  **Transformation**: dbt (running with DuckDB) transforms the raw Iceberg tables into analytical models.
+### Pipeline stages
 
-## Prerequisites
+**1. Generation**
+Synthea generates synthetic patient records in two formats:
+- CSV exports: patients, encounters, conditions
+- FHIR R4 bundle JSON: one file per patient containing Patient, Encounter, and Condition resources
 
--   [Docker](https://docs.docker.com/get-docker/)
--   [Docker Compose](https://docs.docker.com/compose/install/)
+**2. Staging (Airflow + Python)**
+Six staging tasks run in parallel. Each reads from the shared data volume and uploads Parquet files to MinIO at `s3://healthcare/staging/<table>/`.
+
+CSV path:
+- `patients.csv` → `staging/patients/`
+- `encounters.csv` → `staging/encounters/`
+- `conditions.csv` → `staging/conditions/`
+
+FHIR R4 path:
+- Patient resources + US Core race/ethnicity extensions → `staging/fhir_patients/`
+- Encounter resources (v3-ActCode class, SNOMED type) → `staging/fhir_encounters/`
+- Condition resources (SNOMED code, clinicalStatus, verificationStatus, onset/abatement) → `staging/fhir_conditions/`
+
+**3. Ingestion (Trino → Polaris)**
+Trino reads from Hive external tables over the MinIO staging Parquet and writes to Polaris-managed Iceberg tables via `CREATE OR REPLACE TABLE ... AS SELECT`. Polaris registers each table in the `iceberg.default` namespace from the moment of creation.
+
+**4. Transformation (dbt + Trino)**
+dbt models run against Trino, reading and writing within the Polaris catalog:
+
+```
+iceberg.default.patients          ──┐
+iceberg.default.encounters          ├──▶ stg_* (staging)
+iceberg.default.conditions          │         │
+iceberg.default.fhir_patients       │         ▼
+iceberg.default.fhir_encounters   ──┘   fct_patient_encounters (mart)
+iceberg.default.fhir_conditions
+```
+
+**5. Serving**
+- Streamlit dashboard queries Trino directly for clinical KPIs
+- Trino CLI available for ad-hoc queries across all Polaris-registered tables
 
 ## Getting Started
 
-### 1. Start the Environment
+### Prerequisites
 
-First, define your environment variables by copying the example file:
+- [Docker](https://docs.docker.com/get-docker/)
+- [Docker Compose](https://docs.docker.com/compose/install/)
+
+### 1. Configure environment
 
 ```bash
 cp env.example .env
 ```
 
-Spin up the entire stack using the provided Makefile:
+### 2. Start the stack
 
 ```bash
 make up
 ```
 
-This will start MinIO, Apache Polaris, the Synthea generator, Postgres, and the Airflow containers.
+Starts MinIO, Polaris, Synthea, Postgres, Airflow (webserver + scheduler), Trino, and the Streamlit dashboard. Polaris bootstrap runs automatically and creates the `default` catalog backed by `s3://healthcare/iceberg/`.
 
-### 2. Generate Data
+### 3. Run the pipeline
 
-The `synthea` service automatically runs on startup and generates patient data into the `./data` directory. You can also explicitly run the generator using:
-
-```bash
-make generate-data
-```
-
-You can check the logs for all services using `make logs` or for specific services using `docker compose logs -f synthea`.
-
-### 3. Ingest Data to Iceberg
-
-Once data is generated, you can trigger the Airflow pipeline to ingest the data into Iceberg:
+Trigger via the Airflow UI at [http://localhost:8080](http://localhost:8080) (admin / admin), or:
 
 ```bash
 make trigger-ingest
 ```
 
-Alternatively, log in to the Airflow UI at [http://localhost:8080](http://localhost:8080) (user: `admin`, password: `admin`). Enable and trigger the `healthcare_data_pipeline` DAG to execute data ingestion.
+The DAG runs the following task graph:
 
-### 4. Run dbt Transformations
+```
+wait_for_synthea_data
+  └── [stage_patients, stage_encounters, stage_conditions,
+        stage_fhir_patients, stage_fhir_encounters, stage_fhir_conditions]
+             └── create_staging_schema
+                      └── [create_staging_patients, create_staging_encounters, ...]
+                               └── [ingest_patients, ingest_encounters, ...]
+```
 
-Run dbt models to transform the data:
+### 4. Run dbt transformations
 
 ```bash
-make dbt-compile
-# or
 make dbt-run
 ```
-### 5. Streamlit Dashboard
 
-To start the Streamlit dashboard and view the analytics:
+To run tests:
+
+```bash
+make dbt-test
+```
+
+### 5. View the dashboard
 
 ```bash
 make streamlit
 ```
 
-### 6. Querying Data with Trino
+Opens at [http://localhost:8501](http://localhost:8501). Shows patient demographics, encounter volume by month, top conditions by prevalence, encounter class mix, and average cost by encounter type.
 
-You can query the ingested Iceberg tables using **Trino**.
-
-Start the Trino CLI:
+### 6. Query with Trino
 
 ```bash
 make trino-cli
 ```
 
-Once inside the Trino CLI, register the Iceberg tables ingested by DuckDB into the Polaris catalog (since DuckDB writes file-based Iceberg tables directly to MinIO without catalog registration):
+Example queries:
 
 ```sql
--- Register the patients table (find the actual metadata.json filename in MinIO Console)
-CALL iceberg.system.register_table(
-    schema_name => 'default',
-    table_name => 'patients',
-    metadata_file => 's3://healthcare/iceberg/patients/metadata/00000-xxxxx.metadata.json'
-);
+-- All Polaris-registered tables
+SHOW TABLES IN iceberg.default;
 
--- Query the table
-SELECT * FROM iceberg.default.patients LIMIT 10;
+-- Compare CSV vs FHIR encounter counts per patient
+SELECT
+    c.patient_id,
+    COUNT(DISTINCT c.encounter_id)  AS csv_encounters,
+    COUNT(DISTINCT f.encounter_id)  AS fhir_encounters
+FROM iceberg.default.encounters c
+FULL OUTER JOIN iceberg.default.fhir_encounters f USING (patient_id)
+GROUP BY 1
+LIMIT 20;
+
+-- Active conditions by clinical status (FHIR)
+SELECT clinical_status, COUNT(*) AS condition_count
+FROM iceberg.default.fhir_conditions
+GROUP BY 1
+ORDER BY 2 DESC;
 ```
-
-## Makefile Commands
-
-A handy `Makefile` is included to simplify Docker operations. Run `make help` to see all available commands, such as `make down`, `make clean`, `make restart`, etc.
 
 ## Project Structure
 
--   `docker-compose.yml`: Defines the multi-container Docker application.
--   `Dockerfile.airflow`: Custom Dockerfile for the Airflow services.
--   `Dockerfile.synthea`: Custom Dockerfile for the Synthea service.
--   `dags/`: Airflow DAG logic for data orchestration.
--   `dbt_project/`: The dbt project directory containing models and configuration.
--   `trino/`: Configuration folder containing Trino catalog configurations.
--   `data/`: Shared volume where Synthea outputs raw CSV files (git-ignored).
--   `minio_data/`: Local storage for MinIO (git-ignored).
+```
+.
+├── dags/
+│   └── healthcare_pipeline.py   # Airflow DAG (staging + Trino ingest)
+├── dbt_project/
+│   ├── models/
+│   │   ├── staging/             # stg_patients, stg_encounters, stg_conditions,
+│   │   │                        # stg_fhir_patients, stg_fhir_encounters, stg_fhir_conditions
+│   │   └── marts/               # fct_patient_encounters
+│   └── profiles.yml             # dbt-trino connection
+├── trino/
+│   └── catalog/
+│       ├── iceberg.properties   # Polaris REST catalog
+│       └── file.properties      # Hive connector for MinIO staging
+├── dashboard/
+│   └── app.py                   # Streamlit (trino.dbapi)
+├── polaris-bootstrap.sh         # Creates Polaris catalog on startup
+├── docker-compose.yml
+├── Dockerfile.airflow
+├── Dockerfile.dbt
+└── Dockerfile.synthea
+```
 
 ## Accessing Services
 
--   **MinIO Console**: [http://localhost:9001](http://localhost:9001)
-    -   User: `admin`
-    -   Password: `password123`
--   **Apache Polaris API**: [http://localhost:8181](http://localhost:8181)
--   **Airflow UI**: [http://localhost:8080](http://localhost:8080)
-    -   User: `admin`
-    -   Password: `admin`
--   **Trino Coordinator**: [http://localhost:8082](http://localhost:8082)
-
-## Notes
-
--   The project uses a local MinIO instance to simulate S3.
--   Iceberg tables are stored in the `healthcare` bucket in MinIO.
+| Service | URL | Credentials |
+|---|---|---|
+| Airflow UI | http://localhost:8080 | admin / admin |
+| MinIO Console | http://localhost:9001 | admin / password123 |
+| Polaris API | http://localhost:8181 | — |
+| Trino UI | http://localhost:8082 | — |
+| Streamlit | http://localhost:8501 | — |
