@@ -154,6 +154,125 @@ def stage_fhir_patients():
     print(f"Staged {len(df)} FHIR patients to MinIO.")
 
 
+def _ref_id(reference: str | None) -> str | None:
+    """Strip resource type prefix from a FHIR reference, e.g. 'Patient/uuid' → 'uuid'."""
+    if reference and '/' in reference:
+        return reference.split('/')[-1]
+    return reference
+
+
+def stage_fhir_encounters():
+    """
+    Flatten Encounter resources from Synthea FHIR R4 bundles.
+    Encounter.class is a v3-ActCode Coding (AMB, EMER, IMP, etc.).
+    Encounter.type carries the SNOMED visit type.
+    """
+    records = []
+    for path in glob.glob(f'{FHIR_BASE}/*.json'):
+        with open(path) as f:
+            bundle = json.load(f)
+
+        for entry in bundle.get('entry', []):
+            resource = entry.get('resource', {})
+            if resource.get('resourceType') != 'Encounter':
+                continue
+
+            enc_type = (resource.get('type') or [{}])[0]
+            type_coding = (enc_type.get('coding') or [{}])[0]
+
+            reason = (resource.get('reasonCode') or [{}])[0]
+            reason_coding = (reason.get('coding') or [{}])[0]
+
+            period = resource.get('period', {})
+
+            records.append({
+                'encounter_id':          resource.get('id'),
+                'patient_id':            _ref_id(resource.get('subject', {}).get('reference')),
+                'encounter_start':       period.get('start'),
+                'encounter_stop':        period.get('end'),
+                'encounter_class_code':  resource.get('class', {}).get('code'),
+                'encounter_type_code':   type_coding.get('code'),
+                'encounter_type_display': type_coding.get('display'),
+                'reason_code':           reason_coding.get('code'),
+                'reason_display':        reason_coding.get('display'),
+                'status':                resource.get('status'),
+            })
+
+    if not records:
+        raise ValueError(f"No FHIR Encounter resources found in {FHIR_BASE}")
+
+    df = pd.DataFrame(records)
+    parquet_path = '/tmp/fhir_encounters.parquet'
+    df.to_parquet(parquet_path, index=False)
+
+    _s3_client().upload_file(
+        parquet_path,
+        STAGING_BUCKET,
+        f'{STAGING_PREFIX}/fhir_encounters/fhir_encounters.parquet',
+    )
+    print(f"Staged {len(df)} FHIR encounters to MinIO.")
+
+
+def stage_fhir_conditions():
+    """
+    Flatten Condition resources from Synthea FHIR R4 bundles.
+    clinicalStatus and verificationStatus are CodeableConcepts, not plain strings.
+    onset/abatement may be dateTime or Period depending on the condition type.
+    """
+    records = []
+    for path in glob.glob(f'{FHIR_BASE}/*.json'):
+        with open(path) as f:
+            bundle = json.load(f)
+
+        for entry in bundle.get('entry', []):
+            resource = entry.get('resource', {})
+            if resource.get('resourceType') != 'Condition':
+                continue
+
+            code_coding = (resource.get('code', {}).get('coding') or [{}])[0]
+            clinical_status = (
+                resource.get('clinicalStatus', {}).get('coding') or [{}]
+            )[0].get('code')
+            verification_status = (
+                resource.get('verificationStatus', {}).get('coding') or [{}]
+            )[0].get('code')
+
+            # onset can be onsetDateTime or onsetPeriod
+            onset = resource.get('onsetDateTime') or (
+                resource.get('onsetPeriod') or {}
+            ).get('start')
+            abatement = resource.get('abatementDateTime') or (
+                resource.get('abatementPeriod') or {}
+            ).get('end')
+
+            records.append({
+                'condition_id':          resource.get('id'),
+                'patient_id':            _ref_id(resource.get('subject', {}).get('reference')),
+                'encounter_id':          _ref_id((resource.get('encounter') or {}).get('reference')),
+                'condition_code':        code_coding.get('code'),
+                'condition_display':     code_coding.get('display'),
+                'condition_text':        resource.get('code', {}).get('text'),
+                'clinical_status':       clinical_status,
+                'verification_status':   verification_status,
+                'onset_date':            onset,
+                'abatement_date':        abatement,
+            })
+
+    if not records:
+        raise ValueError(f"No FHIR Condition resources found in {FHIR_BASE}")
+
+    df = pd.DataFrame(records)
+    parquet_path = '/tmp/fhir_conditions.parquet'
+    df.to_parquet(parquet_path, index=False)
+
+    _s3_client().upload_file(
+        parquet_path,
+        STAGING_BUCKET,
+        f'{STAGING_PREFIX}/fhir_conditions/fhir_conditions.parquet',
+    )
+    print(f"Staged {len(df)} FHIR conditions to MinIO.")
+
+
 def stage_conditions():
     _stage_csv_to_parquet('conditions', {
         'PATIENT': 'patient_id',
@@ -202,6 +321,16 @@ with DAG(
     stage_fhir_patients_task = PythonOperator(
         task_id='stage_fhir_patients',
         python_callable=stage_fhir_patients,
+    )
+
+    stage_fhir_encounters_task = PythonOperator(
+        task_id='stage_fhir_encounters',
+        python_callable=stage_fhir_encounters,
+    )
+
+    stage_fhir_conditions_task = PythonOperator(
+        task_id='stage_fhir_conditions',
+        python_callable=stage_fhir_conditions,
     )
 
     # Phase 2: create Hive staging schema and external tables over MinIO Parquet
@@ -329,6 +458,8 @@ with DAG(
         stage_encounters_task,
         stage_conditions_task,
         stage_fhir_patients_task,
+        stage_fhir_encounters_task,
+        stage_fhir_conditions_task,
     ]
 
     # DDL phase runs after all staging is done
@@ -337,6 +468,8 @@ with DAG(
         stage_encounters_task,
         stage_conditions_task,
         stage_fhir_patients_task,
+        stage_fhir_encounters_task,
+        stage_fhir_conditions_task,
     ] >> create_staging_schema
 
     # External table DDL runs after schema exists
@@ -380,15 +513,104 @@ with DAG(
         """,
     )
 
+    create_staging_fhir_encounters = TrinoOperator(
+        task_id='create_staging_fhir_encounters',
+        trino_conn_id=TRINO_CONN_ID,
+        sql="""
+            CREATE TABLE IF NOT EXISTS file.staging.fhir_encounters (
+                encounter_id            VARCHAR,
+                patient_id              VARCHAR,
+                encounter_start         VARCHAR,
+                encounter_stop          VARCHAR,
+                encounter_class_code    VARCHAR,
+                encounter_type_code     VARCHAR,
+                encounter_type_display  VARCHAR,
+                reason_code             VARCHAR,
+                reason_display          VARCHAR,
+                status                  VARCHAR
+            ) WITH (
+                external_location = 's3://healthcare/staging/fhir_encounters/',
+                format = 'PARQUET'
+            )
+        """,
+    )
+
+    create_staging_fhir_conditions = TrinoOperator(
+        task_id='create_staging_fhir_conditions',
+        trino_conn_id=TRINO_CONN_ID,
+        sql="""
+            CREATE TABLE IF NOT EXISTS file.staging.fhir_conditions (
+                condition_id            VARCHAR,
+                patient_id              VARCHAR,
+                encounter_id            VARCHAR,
+                condition_code          VARCHAR,
+                condition_display       VARCHAR,
+                condition_text          VARCHAR,
+                clinical_status         VARCHAR,
+                verification_status     VARCHAR,
+                onset_date              VARCHAR,
+                abatement_date          VARCHAR
+            ) WITH (
+                external_location = 's3://healthcare/staging/fhir_conditions/',
+                format = 'PARQUET'
+            )
+        """,
+    )
+
+    ingest_fhir_encounters = TrinoOperator(
+        task_id='ingest_fhir_encounters',
+        trino_conn_id=TRINO_CONN_ID,
+        sql="""
+            CREATE OR REPLACE TABLE iceberg.default.fhir_encounters AS
+            SELECT
+                encounter_id,
+                patient_id,
+                CAST(encounter_start AS TIMESTAMP)  AS encounter_start,
+                CAST(encounter_stop  AS TIMESTAMP)  AS encounter_stop,
+                encounter_class_code,
+                encounter_type_code,
+                encounter_type_display,
+                reason_code,
+                reason_display,
+                status
+            FROM file.staging.fhir_encounters
+        """,
+    )
+
+    ingest_fhir_conditions = TrinoOperator(
+        task_id='ingest_fhir_conditions',
+        trino_conn_id=TRINO_CONN_ID,
+        sql="""
+            CREATE OR REPLACE TABLE iceberg.default.fhir_conditions AS
+            SELECT
+                condition_id,
+                patient_id,
+                encounter_id,
+                condition_code,
+                condition_display,
+                condition_text,
+                clinical_status,
+                verification_status,
+                CAST(onset_date      AS DATE)   AS onset_date,
+                CAST(abatement_date  AS DATE)   AS abatement_date,
+                abatement_date IS NULL          AS is_active
+            FROM file.staging.fhir_conditions
+        """,
+    )
+
     create_staging_schema >> [
         create_staging_patients,
         create_staging_encounters,
         create_staging_conditions,
         create_staging_fhir_patients,
+        create_staging_fhir_encounters,
+        create_staging_fhir_conditions,
     ]
 
     # Ingest into Iceberg after external tables are defined
-    create_staging_patients      >> ingest_patients
-    create_staging_encounters    >> ingest_encounters
-    create_staging_conditions    >> ingest_conditions
-    create_staging_fhir_patients >> ingest_fhir_patients
+    create_staging_patients        >> ingest_patients
+    create_staging_encounters      >> ingest_encounters
+    create_staging_conditions      >> ingest_conditions
+    create_staging_fhir_patients   >> ingest_fhir_patients
+    create_staging_fhir_encounters >> ingest_fhir_encounters
+    create_staging_fhir_conditions >> ingest_fhir_conditions

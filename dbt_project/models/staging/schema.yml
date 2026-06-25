@@ -29,6 +29,43 @@ models:
           - dbt_utils.expression_is_true:
               expression: ">= 0"
 
+  - name: stg_fhir_encounters
+    columns:
+      - name: encounter_id
+        tests:
+          - unique
+          - not_null
+      - name: patient_id
+        tests:
+          - not_null
+      - name: encounter_start
+        tests:
+          - not_null
+      - name: status
+        tests:
+          - accepted_values:
+              values: ['planned', 'arrived', 'triaged', 'in-progress', 'onleave', 'finished', 'cancelled']
+
+  - name: stg_fhir_conditions
+    columns:
+      - name: condition_id
+        tests:
+          - unique
+          - not_null
+      - name: patient_id
+        tests:
+          - not_null
+      - name: condition_code
+        tests:
+          - not_null
+      - name: clinical_status
+        tests:
+          - accepted_values:
+              values: ['active', 'recurrence', 'relapse', 'inactive', 'remission', 'resolved']
+      - name: onset_date
+        tests:
+          - not_null
+
   - name: stg_patients
     columns:
       - name: patient_id
