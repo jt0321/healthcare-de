@@ -1,11 +1,20 @@
-WITH flattened_patients AS (
-    {{ unnest_fhir('raw_json_data', 'Patient') }}
-)
-
 SELECT
-    resource_id as patient_id,
-    resource_content->>'birthDate' as birth_date,
-    resource_content->'name'->0->>'family' as last_name,
-    resource_content->'name'->0->>'given'->>0 as first_name,
-    resource_content->>'gender' as gender
-FROM flattened_patients
+    patient_id,
+    birth_date,
+    gender,
+    family_name,
+    given_name,
+    family_name || ', ' || given_name                               AS full_name,
+    postal_code,
+    state,
+    race,
+    ethnicity,
+    date_diff('year', birth_date, current_date)                     AS age,
+    CASE
+        WHEN date_diff('year', birth_date, current_date) < 18  THEN '0-17'
+        WHEN date_diff('year', birth_date, current_date) < 35  THEN '18-34'
+        WHEN date_diff('year', birth_date, current_date) < 50  THEN '35-49'
+        WHEN date_diff('year', birth_date, current_date) < 65  THEN '50-64'
+        ELSE '65+'
+    END                                                             AS age_group
+FROM iceberg.default.fhir_patients

@@ -1,3 +1,5 @@
+import glob
+import json
 import os
 import boto3
 import pandas as pd
@@ -19,6 +21,7 @@ default_args = {
 
 TRINO_CONN_ID = 'trino_default'
 CSV_BASE = '/opt/airflow/data/csv'
+FHIR_BASE = '/opt/airflow/data/fhir'
 STAGING_BUCKET = 'healthcare'
 STAGING_PREFIX = 'staging'
 
@@ -81,6 +84,76 @@ def stage_encounters():
     })
 
 
+def _us_core_race(extensions: list) -> str | None:
+    """Extract race text from US Core race extension."""
+    for ext in extensions or []:
+        if ext.get('url') == 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-race':
+            for sub in ext.get('extension', []):
+                if sub.get('url') == 'text':
+                    return sub.get('valueString')
+    return None
+
+
+def _us_core_ethnicity(extensions: list) -> str | None:
+    """Extract ethnicity text from US Core ethnicity extension."""
+    for ext in extensions or []:
+        if ext.get('url') == 'http://hl7.org/fhir/us/core/StructureDefinition/us-core-ethnicity':
+            for sub in ext.get('extension', []):
+                if sub.get('url') == 'text':
+                    return sub.get('valueString')
+    return None
+
+
+def stage_fhir_patients():
+    """
+    Flatten Patient resources from Synthea FHIR R4 bundles.
+    Each file is one patient bundle; we extract the Patient entry plus
+    US Core race/ethnicity extensions and address.
+    """
+    records = []
+    for path in glob.glob(f'{FHIR_BASE}/*.json'):
+        with open(path) as f:
+            bundle = json.load(f)
+
+        for entry in bundle.get('entry', []):
+            resource = entry.get('resource', {})
+            if resource.get('resourceType') != 'Patient':
+                continue
+
+            name = next(
+                (n for n in resource.get('name', []) if n.get('use') == 'official'),
+                resource.get('name', [{}])[0],
+            )
+            address = resource.get('address', [{}])[0]
+            extensions = resource.get('extension', [])
+
+            records.append({
+                'patient_id':   resource.get('id'),
+                'birth_date':   resource.get('birthDate'),
+                'gender':       resource.get('gender'),
+                'family_name':  name.get('family'),
+                'given_name':   ' '.join(name.get('given', [])),
+                'postal_code':  address.get('postalCode'),
+                'state':        address.get('state'),
+                'race':         _us_core_race(extensions),
+                'ethnicity':    _us_core_ethnicity(extensions),
+            })
+
+    if not records:
+        raise ValueError(f"No FHIR Patient resources found in {FHIR_BASE}")
+
+    df = pd.DataFrame(records)
+    parquet_path = '/tmp/fhir_patients.parquet'
+    df.to_parquet(parquet_path, index=False)
+
+    _s3_client().upload_file(
+        parquet_path,
+        STAGING_BUCKET,
+        f'{STAGING_PREFIX}/fhir_patients/fhir_patients.parquet',
+    )
+    print(f"Staged {len(df)} FHIR patients to MinIO.")
+
+
 def stage_conditions():
     _stage_csv_to_parquet('conditions', {
         'PATIENT': 'patient_id',
@@ -110,7 +183,7 @@ with DAG(
         mode='poke',
     )
 
-    # Phase 1: stage CSVs to MinIO as Parquet
+    # Phase 1: stage CSVs + FHIR bundles to MinIO as Parquet (all parallel)
     stage_patients_task = PythonOperator(
         task_id='stage_patients',
         python_callable=stage_patients,
@@ -124,6 +197,11 @@ with DAG(
     stage_conditions_task = PythonOperator(
         task_id='stage_conditions',
         python_callable=stage_conditions,
+    )
+
+    stage_fhir_patients_task = PythonOperator(
+        task_id='stage_fhir_patients',
+        python_callable=stage_fhir_patients,
     )
 
     # Phase 2: create Hive staging schema and external tables over MinIO Parquet
@@ -245,16 +323,72 @@ with DAG(
         """,
     )
 
-    # Staging tasks can run in parallel after the sensor
-    wait_for_synthea_data >> [stage_patients_task, stage_encounters_task, stage_conditions_task]
+    # Staging tasks run in parallel after the sensor
+    wait_for_synthea_data >> [
+        stage_patients_task,
+        stage_encounters_task,
+        stage_conditions_task,
+        stage_fhir_patients_task,
+    ]
 
     # DDL phase runs after all staging is done
-    [stage_patients_task, stage_encounters_task, stage_conditions_task] >> create_staging_schema
+    [
+        stage_patients_task,
+        stage_encounters_task,
+        stage_conditions_task,
+        stage_fhir_patients_task,
+    ] >> create_staging_schema
 
     # External table DDL runs after schema exists
-    create_staging_schema >> [create_staging_patients, create_staging_encounters, create_staging_conditions]
+    create_staging_fhir_patients = TrinoOperator(
+        task_id='create_staging_fhir_patients',
+        trino_conn_id=TRINO_CONN_ID,
+        sql="""
+            CREATE TABLE IF NOT EXISTS file.staging.fhir_patients (
+                patient_id      VARCHAR,
+                birth_date      VARCHAR,
+                gender          VARCHAR,
+                family_name     VARCHAR,
+                given_name      VARCHAR,
+                postal_code     VARCHAR,
+                state           VARCHAR,
+                race            VARCHAR,
+                ethnicity       VARCHAR
+            ) WITH (
+                external_location = 's3://healthcare/staging/fhir_patients/',
+                format = 'PARQUET'
+            )
+        """,
+    )
+
+    ingest_fhir_patients = TrinoOperator(
+        task_id='ingest_fhir_patients',
+        trino_conn_id=TRINO_CONN_ID,
+        sql="""
+            CREATE OR REPLACE TABLE iceberg.default.fhir_patients AS
+            SELECT
+                patient_id,
+                CAST(birth_date AS DATE)            AS birth_date,
+                gender,
+                family_name,
+                given_name,
+                postal_code,
+                state,
+                race,
+                ethnicity
+            FROM file.staging.fhir_patients
+        """,
+    )
+
+    create_staging_schema >> [
+        create_staging_patients,
+        create_staging_encounters,
+        create_staging_conditions,
+        create_staging_fhir_patients,
+    ]
 
     # Ingest into Iceberg after external tables are defined
-    create_staging_patients  >> ingest_patients
-    create_staging_encounters >> ingest_encounters
-    create_staging_conditions >> ingest_conditions
+    create_staging_patients      >> ingest_patients
+    create_staging_encounters    >> ingest_encounters
+    create_staging_conditions    >> ingest_conditions
+    create_staging_fhir_patients >> ingest_fhir_patients
