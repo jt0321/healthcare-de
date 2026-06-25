@@ -11,6 +11,20 @@ models:
           - dbt_expectations.expect_column_values_to_be_of_type:
               column_type: date
 
+  - name: stg_patients
+    columns:
+      - name: patient_id
+        tests:
+          - unique
+          - not_null
+      - name: birth_date
+        tests:
+          - not_null
+      - name: age
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+
   - name: stg_encounters
     columns:
       - name: encounter_id

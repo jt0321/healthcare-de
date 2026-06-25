@@ -1,0 +1,25 @@
+models:
+  - name: fct_patient_encounters
+    columns:
+      - name: encounter_id
+        tests:
+          - unique
+          - not_null
+      - name: patient_id
+        tests:
+          - not_null
+      - name: encounter_start
+        tests:
+          - not_null
+      - name: encounter_class
+        tests:
+          - accepted_values:
+              values: ['ambulatory', 'emergency', 'inpatient', 'outpatient', 'urgentcare', 'wellness']
+      - name: total_claim_cost
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+      - name: encounter_stop
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= encounter_start"
