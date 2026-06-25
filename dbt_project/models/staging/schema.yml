@@ -25,6 +25,21 @@ models:
           - dbt_utils.expression_is_true:
               expression: ">= 0"
 
+  - name: stg_conditions
+    columns:
+      - name: patient_id
+        tests:
+          - not_null
+      - name: encounter_id
+        tests:
+          - not_null
+      - name: condition_code
+        tests:
+          - not_null
+      - name: condition_start
+        tests:
+          - not_null
+
   - name: stg_encounters
     columns:
       - name: encounter_id

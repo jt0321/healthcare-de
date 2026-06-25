@@ -94,6 +94,7 @@ services:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password123
       - AWS_ENDPOINT_URL=http://minio:9000
+      - AIRFLOW_CONN_TRINO_DEFAULT=trino://trino@trino:8080/iceberg
     volumes:
       - ./dags:/opt/airflow/dags
       - ./data:/opt/airflow/data
@@ -114,6 +115,7 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
       - AWS_ENDPOINT_URL=${AWS_ENDPOINT_URL}
+      - AIRFLOW_CONN_TRINO_DEFAULT=trino://trino@trino:8080/iceberg
     volumes:
       - ./dags:/opt/airflow/dags
       - ./data:/opt/airflow/data
@@ -151,6 +153,7 @@ services:
       - "8082:8080"
     volumes:
       - ./trino/catalog:/etc/trino/catalog:ro
+      - trino-metastore:/etc/trino/file-metastore
     environment:
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
@@ -161,3 +164,5 @@ services:
       polaris-setup:
         condition: service_completed_successfully
 
+volumes:
+  trino-metastore:

@@ -10,5 +10,8 @@ RUN pip install --no-cache-dir \
     duckdb \
     pandas \
     pyiceberg \
+    pyarrow \
+    boto3 \
     s3fs \
-    adlfs
+    adlfs \
+    apache-airflow-providers-trino
