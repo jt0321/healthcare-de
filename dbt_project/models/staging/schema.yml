@@ -10,3 +10,20 @@ models:
         tests:
           - dbt_expectations.expect_column_values_to_be_of_type:
               column_type: date
+
+  - name: stg_encounters
+    columns:
+      - name: encounter_id
+        tests:
+          - unique
+          - not_null
+      - name: patient_id
+        tests:
+          - not_null
+      - name: encounter_start
+        tests:
+          - not_null
+      - name: total_claim_cost
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"

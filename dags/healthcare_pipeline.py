@@ -21,14 +21,10 @@ def check_synthea_data():
         return True
     return False
 
-def ingest_iceberg_data():
+def _duckdb_con():
     con = duckdb.connect()
-    
-    # Install Extensions
     con.execute("INSTALL httpfs; LOAD httpfs;")
     con.execute("INSTALL iceberg; LOAD iceberg;")
-    
-    # Configure S3/MinIO
     con.execute("""
         SET s3_endpoint='minio:9000';
         SET s3_access_key_id='admin';
@@ -36,25 +32,45 @@ def ingest_iceberg_data():
         SET s3_use_ssl=false;
         SET s3_url_style='path';
     """)
-    
-    print("Creating Iceberg tables...")
-    
-    # Create Table from CSV
+    return con
+
+
+def ingest_patients():
+    con = _duckdb_con()
     con.execute("""
-        CREATE OR REPLACE TABLE raw_patients AS 
-        SELECT 
+        CREATE OR REPLACE TABLE raw_patients AS
+        SELECT
             Id as patient_id,
             BIRTHDATE::DATE as birth_date,
             FIRST || ' ' || LAST as full_name,
-            GENDER,
-            RACE
+            GENDER as gender,
+            RACE as race
         FROM read_csv_auto('/opt/airflow/data/csv/patients.csv');
     """)
-    
-    # Copy to Iceberg
     con.execute("COPY raw_patients TO 's3://healthcare/iceberg/default/patients' (FORMAT ICEBERG);")
-    
-    print("Ingestion Complete!")
+    print("Patients ingested.")
+
+
+def ingest_encounters():
+    con = _duckdb_con()
+    con.execute("""
+        CREATE OR REPLACE TABLE raw_encounters AS
+        SELECT
+            Id as encounter_id,
+            PATIENT as patient_id,
+            START::TIMESTAMP as encounter_start,
+            STOP::TIMESTAMP as encounter_stop,
+            ENCOUNTERCLASS as encounter_class,
+            CODE as encounter_code,
+            DESCRIPTION as encounter_description,
+            REASONCODE as reason_code,
+            REASONDESCRIPTION as reason_description,
+            PAYER as payer_id,
+            TOTAL_CLAIM_COST::DOUBLE as total_claim_cost
+        FROM read_csv_auto('/opt/airflow/data/csv/encounters.csv');
+    """)
+    con.execute("COPY raw_encounters TO 's3://healthcare/iceberg/default/encounters' (FORMAT ICEBERG);")
+    print("Encounters ingested.")
 
 with DAG(
     'healthcare_data_pipeline',
@@ -74,10 +90,15 @@ with DAG(
         mode='poke',
     )
 
-    ingest_to_iceberg = PythonOperator(
-        task_id='ingest_to_iceberg',
-        python_callable=ingest_iceberg_data,
+    ingest_patients_task = PythonOperator(
+        task_id='ingest_patients',
+        python_callable=ingest_patients,
     )
 
-    wait_for_synthea_data >> ingest_to_iceberg
+    ingest_encounters_task = PythonOperator(
+        task_id='ingest_encounters',
+        python_callable=ingest_encounters,
+    )
+
+    wait_for_synthea_data >> ingest_patients_task >> ingest_encounters_task
 
