@@ -1,8 +1,28 @@
-# Synthea generated data (ignored)
+# Synthea generated data
 data/
 
-# MinIO data (ignored)
+# MinIO data
 minio_data/
 
-# Airflow configurations
+# Environment variables
 .env
+
+# IDE
+.vscode/
+.antigravitycli/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.python-version
+
+# dbt
+dbt_project/target/
+dbt_project/logs/
+dbt_project/.user.yml
+dbt_project/dbt_packages/
+
+# Airflow
+logs/
+airflow.db
