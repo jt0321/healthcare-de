@@ -6,9 +6,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 from airflow import DAG
-from airflow.models import Variable
 from airflow.operators.bash import BashOperator
-from airflow.sensors.python import PythonSensor
 from airflow.operators.python import PythonOperator
 from airflow.providers.trino.operators.trino import TrinoOperator
 
@@ -32,37 +30,6 @@ MINIO_CLIENT = dict(
     aws_access_key_id='admin',
     aws_secret_access_key='password123',
 )
-
-
-WATERMARK_VAR = 'synthea_last_ingest_mtime'
-
-SOURCE_FILES = [
-    f'{CSV_BASE}/patients.csv',
-    f'{CSV_BASE}/encounters.csv',
-    f'{CSV_BASE}/conditions.csv',
-]
-
-
-def check_new_synthea_data():
-    """
-    Returns True when any source file is newer than the last recorded
-    ingest watermark. On first run (no watermark) any existing file
-    triggers ingestion.
-    """
-    last_mtime = float(Variable.get(WATERMARK_VAR, default_var=0))
-    return any(
-        os.path.exists(p) and os.path.getmtime(p) > last_mtime
-        for p in SOURCE_FILES
-    )
-
-
-def update_watermark():
-    """Advance the watermark to the latest mtime seen across source files."""
-    mtimes = [
-        os.path.getmtime(p) for p in SOURCE_FILES if os.path.exists(p)
-    ]
-    if mtimes:
-        Variable.set(WATERMARK_VAR, max(mtimes))
 
 
 def _s3_client():
@@ -323,14 +290,6 @@ with DAG(
     tags=['healthcare'],
 ) as dag:
 
-    wait_for_new_data = PythonSensor(
-        task_id='wait_for_new_synthea_data',
-        python_callable=check_new_synthea_data,
-        poke_interval=300,   # check every 5 minutes
-        timeout=3600,        # give up after 1 hour
-        mode='poke',
-    )
-
     # Phase 1: stage CSVs + FHIR bundles to MinIO as Parquet (all parallel)
     stage_patients_task = PythonOperator(
         task_id='stage_patients',
@@ -481,8 +440,8 @@ with DAG(
         """,
     )
 
-    # Staging tasks run in parallel after the sensor
-    wait_for_new_data >> [
+    # All staging tasks run in parallel at DAG start
+    staging_tasks = [
         stage_patients_task,
         stage_encounters_task,
         stage_conditions_task,
@@ -491,15 +450,7 @@ with DAG(
         stage_fhir_conditions_task,
     ]
 
-    # DDL phase runs after all staging is done
-    [
-        stage_patients_task,
-        stage_encounters_task,
-        stage_conditions_task,
-        stage_fhir_patients_task,
-        stage_fhir_encounters_task,
-        stage_fhir_conditions_task,
-    ] >> create_staging_schema
+    staging_tasks >> create_staging_schema
 
     # External table DDL runs after schema exists
     create_staging_fhir_patients = TrinoOperator(
@@ -653,13 +604,6 @@ with DAG(
         ingest_fhir_conditions,
     ]
 
-    # Advance watermark only after all ingest tasks succeed
-    update_watermark_task = PythonOperator(
-        task_id='update_watermark',
-        python_callable=update_watermark,
-    )
-
-    # Run dbt models against Trino / Polaris
     dbt_run = BashOperator(
         task_id='dbt_run',
         bash_command='cd /opt/airflow/dbt_project && dbt run --profiles-dir /opt/airflow/dbt_project',
@@ -670,4 +614,4 @@ with DAG(
         bash_command='cd /opt/airflow/dbt_project && dbt test --profiles-dir /opt/airflow/dbt_project',
     )
 
-    all_ingest >> update_watermark_task >> dbt_run >> dbt_test
+    all_ingest >> dbt_run >> dbt_test
