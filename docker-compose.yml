@@ -98,6 +98,7 @@ services:
     volumes:
       - ./dags:/opt/airflow/dags
       - ./data:/opt/airflow/data
+      - ./dbt_project:/opt/airflow/dbt_project
     command: webserver
 
   airflow-scheduler:
@@ -119,6 +120,7 @@ services:
     volumes:
       - ./dags:/opt/airflow/dags
       - ./data:/opt/airflow/data
+      - ./dbt_project:/opt/airflow/dbt_project
     command: scheduler
 
   dbt:

@@ -6,6 +6,8 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 from airflow import DAG
+from airflow.models import Variable
+from airflow.operators.bash import BashOperator
 from airflow.sensors.python import PythonSensor
 from airflow.operators.python import PythonOperator
 from airflow.providers.trino.operators.trino import TrinoOperator
@@ -32,8 +34,35 @@ MINIO_CLIENT = dict(
 )
 
 
-def check_synthea_data():
-    return os.path.exists(f'{CSV_BASE}/patients.csv')
+WATERMARK_VAR = 'synthea_last_ingest_mtime'
+
+SOURCE_FILES = [
+    f'{CSV_BASE}/patients.csv',
+    f'{CSV_BASE}/encounters.csv',
+    f'{CSV_BASE}/conditions.csv',
+]
+
+
+def check_new_synthea_data():
+    """
+    Returns True when any source file is newer than the last recorded
+    ingest watermark. On first run (no watermark) any existing file
+    triggers ingestion.
+    """
+    last_mtime = float(Variable.get(WATERMARK_VAR, default_var=0))
+    return any(
+        os.path.exists(p) and os.path.getmtime(p) > last_mtime
+        for p in SOURCE_FILES
+    )
+
+
+def update_watermark():
+    """Advance the watermark to the latest mtime seen across source files."""
+    mtimes = [
+        os.path.getmtime(p) for p in SOURCE_FILES if os.path.exists(p)
+    ]
+    if mtimes:
+        Variable.set(WATERMARK_VAR, max(mtimes))
 
 
 def _s3_client():
@@ -287,18 +316,18 @@ def stage_conditions():
 with DAG(
     'healthcare_data_pipeline',
     default_args=default_args,
-    description='Ingest Synthea CSVs into Polaris-managed Iceberg tables via Trino',
-    schedule_interval=timedelta(days=1),
+    description='Daily ingest of Synthea data into Polaris-managed Iceberg tables via Trino',
+    schedule_interval='@daily',
     start_date=datetime(2024, 1, 1),
     catchup=False,
     tags=['healthcare'],
 ) as dag:
 
-    wait_for_synthea_data = PythonSensor(
-        task_id='wait_for_synthea_data',
-        python_callable=check_synthea_data,
-        poke_interval=10,
-        timeout=600,
+    wait_for_new_data = PythonSensor(
+        task_id='wait_for_new_synthea_data',
+        python_callable=check_new_synthea_data,
+        poke_interval=300,   # check every 5 minutes
+        timeout=3600,        # give up after 1 hour
         mode='poke',
     )
 
@@ -453,7 +482,7 @@ with DAG(
     )
 
     # Staging tasks run in parallel after the sensor
-    wait_for_synthea_data >> [
+    wait_for_new_data >> [
         stage_patients_task,
         stage_encounters_task,
         stage_conditions_task,
@@ -614,3 +643,31 @@ with DAG(
     create_staging_fhir_patients   >> ingest_fhir_patients
     create_staging_fhir_encounters >> ingest_fhir_encounters
     create_staging_fhir_conditions >> ingest_fhir_conditions
+
+    all_ingest = [
+        ingest_patients,
+        ingest_encounters,
+        ingest_conditions,
+        ingest_fhir_patients,
+        ingest_fhir_encounters,
+        ingest_fhir_conditions,
+    ]
+
+    # Advance watermark only after all ingest tasks succeed
+    update_watermark_task = PythonOperator(
+        task_id='update_watermark',
+        python_callable=update_watermark,
+    )
+
+    # Run dbt models against Trino / Polaris
+    dbt_run = BashOperator(
+        task_id='dbt_run',
+        bash_command='cd /opt/airflow/dbt_project && dbt run --profiles-dir /opt/airflow/dbt_project',
+    )
+
+    dbt_test = BashOperator(
+        task_id='dbt_test',
+        bash_command='cd /opt/airflow/dbt_project && dbt test --profiles-dir /opt/airflow/dbt_project',
+    )
+
+    all_ingest >> update_watermark_task >> dbt_run >> dbt_test

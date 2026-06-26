@@ -7,11 +7,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 USER airflow
 RUN pip install --no-cache-dir \
-    duckdb \
     pandas \
-    pyiceberg \
     pyarrow \
     boto3 \
     s3fs \
     adlfs \
-    apache-airflow-providers-trino
+    apache-airflow-providers-trino \
+    dbt-core \
+    dbt-trino
