@@ -6,8 +6,10 @@ import pandas as pd
 from datetime import datetime, timedelta
 
 from airflow import DAG
+from airflow.models import Variable
 from airflow.operators.bash import BashOperator
 from airflow.operators.python import PythonOperator
+from airflow.sensors.python import PythonSensor
 from airflow.providers.trino.operators.trino import TrinoOperator
 
 default_args = {
@@ -30,6 +32,29 @@ MINIO_CLIENT = dict(
     aws_access_key_id='admin',
     aws_secret_access_key='password123',
 )
+
+
+WATERMARK_VAR = 'synthea_last_ingest_mtime'
+
+SOURCE_FILES = [
+    f'{CSV_BASE}/patients.csv',
+    f'{CSV_BASE}/encounters.csv',
+    f'{CSV_BASE}/conditions.csv',
+]
+
+
+def check_new_synthea_data():
+    last_mtime = float(Variable.get(WATERMARK_VAR, default_var=0))
+    return any(
+        os.path.exists(p) and os.path.getmtime(p) > last_mtime
+        for p in SOURCE_FILES
+    )
+
+
+def update_watermark():
+    mtimes = [os.path.getmtime(p) for p in SOURCE_FILES if os.path.exists(p)]
+    if mtimes:
+        Variable.set(WATERMARK_VAR, max(mtimes))
 
 
 def _s3_client():
@@ -440,7 +465,14 @@ with DAG(
         """,
     )
 
-    # All staging tasks run in parallel at DAG start
+    wait_for_new_data = PythonSensor(
+        task_id='wait_for_new_synthea_data',
+        python_callable=check_new_synthea_data,
+        poke_interval=300,
+        timeout=3600,
+        mode='poke',
+    )
+
     staging_tasks = [
         stage_patients_task,
         stage_encounters_task,
@@ -450,7 +482,7 @@ with DAG(
         stage_fhir_conditions_task,
     ]
 
-    staging_tasks >> create_staging_schema
+    wait_for_new_data >> staging_tasks >> create_staging_schema
 
     # External table DDL runs after schema exists
     create_staging_fhir_patients = TrinoOperator(
@@ -614,4 +646,9 @@ with DAG(
         bash_command='cd /opt/airflow/dbt_project && dbt test --profiles-dir /opt/airflow/dbt_project',
     )
 
-    all_ingest >> dbt_run >> dbt_test
+    update_watermark_task = PythonOperator(
+        task_id='update_watermark',
+        python_callable=update_watermark,
+    )
+
+    all_ingest >> update_watermark_task >> dbt_run >> dbt_test
