@@ -3,6 +3,7 @@ healthcare_project:
     dev:
       type: trino
       method: none
+      user: trino
       host: trino
       port: 8080
       database: iceberg

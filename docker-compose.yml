@@ -9,6 +9,21 @@ services:
     volumes:
       - ./minio_data:/data
 
+  polaris-bootstrap-db:
+    image: apache/polaris-admin-tool:latest
+    environment:
+      polaris.persistence.type: relational-jdbc
+      quarkus.datasource.db-kind: postgresql
+      quarkus.datasource.username: ${POSTGRES_USER}
+      quarkus.datasource.password: ${POSTGRES_PASSWORD}
+      quarkus.datasource.jdbc.url: jdbc:postgresql://postgres:5432/polaris
+    entrypoint: ["/bin/sh", "/polaris-admin-bootstrap.sh"]
+    volumes:
+      - ./polaris-admin-bootstrap.sh:/polaris-admin-bootstrap.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   polaris:
     image: apache/polaris:latest
     ports:
@@ -21,6 +36,17 @@ services:
       POLARIS_BOOTSTRAP_CREDENTIALS: POLARIS,root,s3cr3t
       polaris.realm-context.realms: POLARIS
       quarkus.otel.sdk.disabled: "true"
+      # dbt-trino's table materialization drops a temp "__dbt_backup" table on every
+      # rerun; Polaris blocks purge-on-drop by default as a safety gate.
+      polaris.features."DROP_WITH_PURGE_ENABLED": "true"
+      # Persist catalogs/namespaces/grants in Postgres instead of Polaris's default
+      # in-memory store, so they survive container restarts (the Iceberg data itself
+      # always lived safely in MinIO regardless -- this is just Polaris's own bookkeeping).
+      POLARIS_PERSISTENCE_TYPE: relational-jdbc
+      QUARKUS_DATASOURCE_DB_KIND: postgresql
+      QUARKUS_DATASOURCE_JDBC_URL: jdbc:postgresql://postgres:5432/polaris
+      QUARKUS_DATASOURCE_USERNAME: ${POSTGRES_USER}
+      QUARKUS_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8182/q/health"]
       interval: 5s
@@ -28,7 +54,12 @@ services:
       retries: 5
       start_period: 10s
     depends_on:
-      - minio
+      minio:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      polaris-bootstrap-db:
+        condition: service_completed_successfully
 
   minio-setup:
     image: minio/minio
@@ -54,7 +85,7 @@ services:
       dockerfile: Dockerfile.synthea
     volumes:
       - ./data:/output
-    command: -p 100 --exporter.csv.export=true --exporter.fhir.export=true
+    command: -p 1000 --exporter.csv.export=true --exporter.fhir.export=true
 
   postgres:
     image: postgres:13
@@ -63,7 +94,15 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
     ports:
-      - "5432:5432"
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init-polaris-db.sh:/docker-entrypoint-initdb.d/init-polaris-db.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   airflow-init:
     build:
@@ -87,7 +126,6 @@ services:
       - postgres
       - airflow-init
       - minio
-      - synthea
     environment:
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
       - AIRFLOW__CORE__EXECUTOR=LocalExecutor
@@ -98,7 +136,6 @@ services:
     volumes:
       - ./dags:/opt/airflow/dags
       - ./data:/opt/airflow/data
-      - ./dbt_project:/opt/airflow/dbt_project
     command: webserver
 
   airflow-scheduler:
@@ -109,7 +146,6 @@ services:
       - postgres
       - airflow-init
       - minio
-      - synthea
     environment:
       - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=${AIRFLOW__DATABASE__SQL_ALCHEMY_CONN}
       - AIRFLOW__CORE__EXECUTOR=${AIRFLOW__CORE__EXECUTOR}
@@ -120,7 +156,9 @@ services:
     volumes:
       - ./dags:/opt/airflow/dags
       - ./data:/opt/airflow/data
-      - ./dbt_project:/opt/airflow/dbt_project
+      - /var/run/docker.sock:/var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID}" # host's docker group GID, needed for LocalExecutor tasks (DockerOperator) to reach the socket
     command: scheduler
 
   dbt:
@@ -129,7 +167,6 @@ services:
       dockerfile: Dockerfile.dbt
     volumes:
       - ./dbt_project:/usr/app
-      - ~/.dbt:/root/.dbt # Mounts your profiles
     working_dir: /usr/app
     environment:
       - S3_ENDPOINT=minio:9000
@@ -149,6 +186,13 @@ services:
     depends_on:
       - minio
 
+  trino-metastore-init:
+    image: trinodb/trino:455
+    user: root
+    entrypoint: ["chown", "-R", "1000:1000", "/etc/trino/file-metastore"]
+    volumes:
+      - trino-metastore:/etc/trino/file-metastore
+
   trino:
     image: trinodb/trino:455
     ports:
@@ -165,6 +209,9 @@ services:
         condition: service_started
       polaris-setup:
         condition: service_completed_successfully
+      trino-metastore-init:
+        condition: service_completed_successfully
 
 volumes:
   trino-metastore:
+  postgres-data:

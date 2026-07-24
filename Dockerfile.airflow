@@ -7,11 +7,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 USER airflow
 RUN pip install --no-cache-dir \
+    --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.10.4/constraints-3.11.txt" \
     pandas \
     pyarrow \
     boto3 \
     s3fs \
     adlfs \
     apache-airflow-providers-trino \
-    dbt-core \
-    dbt-trino
+    apache-airflow-providers-docker

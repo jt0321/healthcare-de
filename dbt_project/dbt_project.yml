@@ -1,0 +1,19 @@
+name: 'healthcare_project'
+version: '1.0.0'
+config-version: 2
+
+profile: 'healthcare_project'
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+
+models:
+  healthcare_project:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

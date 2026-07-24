@@ -59,3 +59,32 @@ else
   echo "Failed to create catalog. HTTP status code: $CREATE_RESPONSE"
   exit 1
 fi
+
+# catalog_admin only gets CATALOG_MANAGE_ACCESS/METADATA by default. dbt's table
+# materialization drops a "__dbt_backup" table on every rerun, which needs
+# CATALOG_MANAGE_CONTENT (data-purge) rights too, or Trino gets a 403 from Polaris.
+#
+# Check first rather than just PUT-and-check-status: re-granting an existing grant
+# doesn't 409, it 500s (a duplicate-key error from Polaris's own persistence layer),
+# so status-code checking alone can't tell "already granted" from "actually broken".
+EXISTING_GRANTS=$(curl -s -H "Polaris-Realm: POLARIS" \
+  -H "Authorization: Bearer $TOKEN" \
+  "http://polaris:8181/api/management/v1/catalogs/default/catalog-roles/catalog_admin/grants")
+
+if echo "$EXISTING_GRANTS" | jq -e '.grants[]? | select(.privilege == "CATALOG_MANAGE_CONTENT")' > /dev/null 2>&1; then
+  echo "CATALOG_MANAGE_CONTENT already granted."
+else
+  echo "Granting CATALOG_MANAGE_CONTENT to catalog_admin..."
+  GRANT_RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT -H "Polaris-Realm: POLARIS" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json" \
+    "http://polaris:8181/api/management/v1/catalogs/default/catalog-roles/catalog_admin/grants" \
+    -d '{"grant": {"type": "catalog", "privilege": "CATALOG_MANAGE_CONTENT"}}')
+
+  if [ "$GRANT_RESPONSE" = "201" ] || [ "$GRANT_RESPONSE" = "200" ]; then
+    echo "CATALOG_MANAGE_CONTENT granted."
+  else
+    echo "Failed to grant CATALOG_MANAGE_CONTENT. HTTP status code: $GRANT_RESPONSE"
+    exit 1
+  fi
+fi

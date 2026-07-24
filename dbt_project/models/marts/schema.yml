@@ -14,7 +14,7 @@ models:
       - name: encounter_class
         tests:
           - accepted_values:
-              values: ['ambulatory', 'emergency', 'inpatient', 'outpatient', 'urgentcare', 'wellness']
+              values: ['ambulatory', 'emergency', 'inpatient', 'outpatient', 'urgentcare', 'wellness', 'virtual', 'snf', 'hospice', 'home']
       - name: total_claim_cost
         tests:
           - dbt_utils.expression_is_true:

@@ -8,7 +8,7 @@ A local data engineering pipeline that generates, ingests, and transforms synthe
 
 | Layer | Technology |
 |---|---|
-| Data generation | Synthea (CSV + FHIR R4) |
+| Data generation | Synthea (CSV + FHIR R4), run independently of the orchestrated pipeline |
 | Orchestration | Apache Airflow |
 | Object storage | MinIO (S3-compatible) |
 | Iceberg catalog | Apache Polaris (REST catalog) |
@@ -26,6 +26,8 @@ A local data engineering pipeline that generates, ingests, and transforms synthe
 Synthea generates synthetic patient records in two formats:
 - CSV exports: patients, encounters, conditions
 - FHIR R4 bundle JSON: one file per patient containing Patient, Encounter, and Condition resources
+
+Synthea runs as a standalone, one-shot container (`make generate-data`) — it is **not** started or triggered by Airflow. This reflects how synthetic/clinical data generation actually works in practice: it's a separate, independently-run process that drops files onto shared storage, decoupled from the orchestration layer that later picks them up. The Airflow DAG detects new output via a file-mtime sensor rather than depending on the Synthea container directly.
 
 **2. Staging (Airflow + Python)**
 Six staging tasks run in parallel. Each reads from the shared data volume and uploads Parquet files to MinIO at `s3://healthcare/staging/<table>/`.
@@ -78,9 +80,19 @@ cp env.example .env
 make up
 ```
 
-Starts MinIO, Polaris, Synthea, Postgres, Airflow (webserver + scheduler), Trino, and the Streamlit dashboard. Polaris bootstrap runs automatically and creates the `default` catalog backed by `s3://healthcare/iceberg/`.
+Starts MinIO, Polaris, Postgres, Airflow (webserver + scheduler), Trino, and the Streamlit dashboard. Polaris bootstrap runs automatically and creates the `default` catalog backed by `s3://healthcare/iceberg/`.
 
-### 3. Run the pipeline
+### 3. Generate synthetic patient data
+
+```bash
+make generate-data
+```
+
+Runs the Synthea container once and exits — it's independent of the rest of the stack and can be re-run any time to refresh/grow the dataset. By default it generates **1,000 living patients** (`docker-compose.yml`'s `synthea` service uses `-p 1000`), plus their associated encounters and conditions, writing to `./data/csv` and `./data/fhir`. A 1,000-patient run typically produces ~1,167 total patient records (some die and are replaced during simulation to reach the target of 1,000 living patients), ~85–90k encounters, and ~45–50k conditions, taking a few minutes and several GB of output.
+
+To change the population size, edit the `command:` line for the `synthea` service in `docker-compose.yml` (the `-p <N>` flag).
+
+### 4. Run the pipeline
 
 Trigger via the Airflow UI at [http://localhost:8080](http://localhost:8080) (admin / admin), or:
 
@@ -88,18 +100,23 @@ Trigger via the Airflow UI at [http://localhost:8080](http://localhost:8080) (ad
 make trigger-ingest
 ```
 
-The DAG runs the following task graph:
+The DAG first polls (`wait_for_new_synthea_data`, every 5 min for up to 1 hour) for CSV files newer than the last recorded watermark, so make sure `make generate-data` has completed at least once beforehand. It then runs the following task graph:
 
 ```
-wait_for_synthea_data
+wait_for_new_synthea_data
   └── [stage_patients, stage_encounters, stage_conditions,
         stage_fhir_patients, stage_fhir_encounters, stage_fhir_conditions]
              └── create_staging_schema
                       └── [create_staging_patients, create_staging_encounters, ...]
                                └── [ingest_patients, ingest_encounters, ...]
+                                        └── update_watermark
+                                                 └── dbt_run
+                                                          └── dbt_test
 ```
 
-### 4. Run dbt transformations
+### 5. Run dbt transformations
+
+The DAG runs `dbt run` and `dbt test` automatically, but you can also run them standalone:
 
 ```bash
 make dbt-run
@@ -111,7 +128,7 @@ To run tests:
 make dbt-test
 ```
 
-### 5. View the dashboard
+### 6. View the dashboard
 
 ```bash
 make streamlit
@@ -119,7 +136,7 @@ make streamlit
 
 Opens at [http://localhost:8501](http://localhost:8501). Shows patient demographics, encounter volume by month, top conditions by prevalence, encounter class mix, and average cost by encounter type.
 
-### 6. Query with Trino
+### 7. Query with Trino
 
 ```bash
 make trino-cli
@@ -182,3 +199,11 @@ ORDER BY 2 DESC;
 | Polaris API | http://localhost:8181 | — |
 | Trino UI | http://localhost:8082 | — |
 | Streamlit | http://localhost:8501 | — |
+
+## Polaris persistence
+
+Being an Iceberg REST catalog and persisting its own bookkeeping are two different concerns. Polaris's REST API is how Trino looks up "where's the current metadata pointer for table X" — but Polaris itself still needs to store *its own* catalog/namespace/grant registrations somewhere, separate from the actual Iceberg data+metadata files (which always lived safely in MinIO). By default Polaris keeps that bookkeeping in memory, so a container restart would silently forget every catalog, namespace, and grant even though the underlying data was untouched.
+
+This stack instead points Polaris at the existing Postgres container via its `relational-jdbc` persistence backend (`polaris-bootstrap-db` runs `apache/polaris-admin-tool bootstrap` against a dedicated `polaris` database before Polaris starts — see `docker-compose.yml` and `postgres/init-polaris-db.sh`), so catalogs/namespaces/grants survive `make down && make up`. `polaris-bootstrap.sh` and `polaris-admin-bootstrap.sh` are both idempotent, so they're safe to rerun on every startup.
+
+If you only restart the `polaris` container on its own (not the full stack), also restart `trino` (`docker compose restart trino`) — Trino caches its OAuth session with Polaris and needs a fresh one.

@@ -7,9 +7,9 @@ from datetime import datetime, timedelta
 
 from airflow import DAG
 from airflow.models import Variable
-from airflow.operators.bash import BashOperator
 from airflow.operators.python import PythonOperator
 from airflow.sensors.python import PythonSensor
+from airflow.providers.docker.operators.docker import DockerOperator
 from airflow.providers.trino.operators.trino import TrinoOperator
 
 default_args = {
@@ -353,6 +353,14 @@ with DAG(
         sql="CREATE SCHEMA IF NOT EXISTS file.staging WITH (location = 's3://healthcare/staging/')",
     )
 
+    # Polaris registers the 'default' catalog on bootstrap, but not a namespace within it;
+    # CTAS into iceberg.default.* fails with "Schema default not found" without this.
+    create_iceberg_schema = TrinoOperator(
+        task_id='create_iceberg_schema',
+        trino_conn_id=TRINO_CONN_ID,
+        sql="CREATE SCHEMA IF NOT EXISTS iceberg.default",
+    )
+
     create_staging_patients = TrinoOperator(
         task_id='create_staging_patients',
         trino_conn_id=TRINO_CONN_ID,
@@ -436,8 +444,8 @@ with DAG(
             SELECT
                 encounter_id,
                 patient_id,
-                CAST(encounter_start AS TIMESTAMP)  AS encounter_start,
-                CAST(encounter_stop  AS TIMESTAMP)  AS encounter_stop,
+                CAST(from_iso8601_timestamp(encounter_start) AS TIMESTAMP)  AS encounter_start,
+                CAST(from_iso8601_timestamp(encounter_stop)  AS TIMESTAMP)  AS encounter_stop,
                 encounter_class,
                 encounter_code,
                 encounter_description,
@@ -483,6 +491,7 @@ with DAG(
     ]
 
     wait_for_new_data >> staging_tasks >> create_staging_schema
+    wait_for_new_data >> create_iceberg_schema
 
     # External table DDL runs after schema exists
     create_staging_fhir_patients = TrinoOperator(
@@ -577,8 +586,8 @@ with DAG(
             SELECT
                 encounter_id,
                 patient_id,
-                CAST(encounter_start AS TIMESTAMP)  AS encounter_start,
-                CAST(encounter_stop  AS TIMESTAMP)  AS encounter_stop,
+                CAST(from_iso8601_timestamp(encounter_start) AS TIMESTAMP)  AS encounter_start,
+                CAST(from_iso8601_timestamp(encounter_stop)  AS TIMESTAMP)  AS encounter_stop,
                 encounter_class_code,
                 encounter_type_code,
                 encounter_type_display,
@@ -603,8 +612,8 @@ with DAG(
                 condition_text,
                 clinical_status,
                 verification_status,
-                CAST(onset_date      AS DATE)   AS onset_date,
-                CAST(abatement_date  AS DATE)   AS abatement_date,
+                CAST(from_iso8601_timestamp(onset_date)      AS DATE)   AS onset_date,
+                CAST(from_iso8601_timestamp(abatement_date)  AS DATE)   AS abatement_date,
                 abatement_date IS NULL          AS is_active
             FROM file.staging.fhir_conditions
         """,
@@ -619,13 +628,22 @@ with DAG(
         create_staging_fhir_conditions,
     ]
 
-    # Ingest into Iceberg after external tables are defined
+    # Ingest into Iceberg after external tables are defined and the iceberg.default namespace exists
     create_staging_patients        >> ingest_patients
     create_staging_encounters      >> ingest_encounters
     create_staging_conditions      >> ingest_conditions
     create_staging_fhir_patients   >> ingest_fhir_patients
     create_staging_fhir_encounters >> ingest_fhir_encounters
     create_staging_fhir_conditions >> ingest_fhir_conditions
+
+    create_iceberg_schema >> [
+        ingest_patients,
+        ingest_encounters,
+        ingest_conditions,
+        ingest_fhir_patients,
+        ingest_fhir_encounters,
+        ingest_fhir_conditions,
+    ]
 
     all_ingest = [
         ingest_patients,
@@ -636,14 +654,27 @@ with DAG(
         ingest_fhir_conditions,
     ]
 
-    dbt_run = BashOperator(
+    # dbt runs in its own container (built from Dockerfile.dbt) rather than inside the
+    # Airflow image: dbt-core's dependency pins conflict with Airflow's, so DockerOperator
+    # drives the sibling `dbt` image over the host docker socket instead.
+    dbt_run = DockerOperator(
         task_id='dbt_run',
-        bash_command='cd /opt/airflow/dbt_project && dbt run --profiles-dir /opt/airflow/dbt_project',
+        image='healthcare-de-dbt',
+        command='run',
+        docker_url='unix://var/run/docker.sock',
+        network_mode='healthcare-de_default',
+        auto_remove='success',
+        mount_tmp_dir=False,
     )
 
-    dbt_test = BashOperator(
+    dbt_test = DockerOperator(
         task_id='dbt_test',
-        bash_command='cd /opt/airflow/dbt_project && dbt test --profiles-dir /opt/airflow/dbt_project',
+        image='healthcare-de-dbt',
+        command='test',
+        docker_url='unix://var/run/docker.sock',
+        network_mode='healthcare-de_default',
+        auto_remove='success',
+        mount_tmp_dir=False,
     )
 
     update_watermark_task = PythonOperator(

@@ -1,2 +1,7 @@
 FROM python:3.11-slim
 RUN pip install --no-cache-dir dbt-core dbt-trino
+WORKDIR /usr/app
+COPY dbt_project/ /usr/app/
+ENV DBT_PROFILES_DIR=/usr/app
+RUN dbt deps
+ENTRYPOINT ["dbt"]
