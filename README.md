@@ -136,6 +136,8 @@ make streamlit
 
 Opens at [http://localhost:8501](http://localhost:8501). Shows patient demographics, encounter volume by month, top conditions by prevalence, encounter class mix, and average cost by encounter type.
 
+![Streamlit Dashboard](./dashboard.png)
+
 ### 7. Query with Trino
 
 ```bash
