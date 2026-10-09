@@ -2,7 +2,9 @@
 
 ## Overview
 
-A local data engineering pipeline that generates, ingests, and transforms synthetic healthcare data using a modern open lakehouse stack running entirely in Docker. The pipeline demonstrates two ingestion paths — structured CSV and FHIR R4 — to reflect real-world healthcare data engineering patterns.
+A local open-lakehouse pipeline that ingests, transforms, and serves synthetic healthcare data, running entirely in Docker.
+
+It ingests two serializations of the same Synthea population — flat CSV exports and FHIR R4 bundles — which exercises both tabular and deeply nested clinical parsing on the way into Iceberg. The two paths describe the same patients and share the same identifiers; they are two file formats, not two disagreeing source systems. See [Scope and limitations](#scope-and-limitations) for what that does and does not demonstrate.
 
 **Stack:**
 
@@ -16,6 +18,28 @@ A local data engineering pipeline that generates, ingests, and transforms synthe
 | Transformation | dbt (dbt-trino) |
 | Dashboard | Streamlit |
 
+## Scope and limitations
+
+Healthcare data engineering is not one job. It splits into lanes that barely overlap:
+
+- **Provider side** — vendor EHR warehouses (Epic's Clarity and Caboodle, and equivalents), HL7 v2 message feeds through an interface engine, C-CDA documents, and Bulk FHIR `$export`.
+- **Payer side** — X12 EDI: 837 claims, 835 remittance, 834 enrollment, 270/271 eligibility. The defining problem there is that claims arrive late and are restated for months after the date of service.
+- **Research and analytics** — normalizing either of the above into a common model such as OMOP CDM.
+
+This project sits in the provider-side lane: batch extracts land on shared storage, a sensor picks them up, they are staged to object storage, registered as Iceberg tables, and transformed into marts.
+
+What it deliberately does not model:
+
+| Not modeled | Why it matters |
+|---|---|
+| Cross-system disagreement | Both ingestion paths come from a single Synthea run and share patient UUIDs, so they cannot conflict. Real pipelines spend most of their effort reconciling systems that disagree — and with no national patient identifier, joining them is a probabilistic matching problem (EMPI), not a key join. |
+| Late-arriving and restated facts | Ingestion is full-refresh (`CREATE OR REPLACE TABLE ... AS SELECT`). Real encounters and claims are amended, voided, and replaced for months after the fact, which makes ingestion an SCD2 / bitemporal problem — and is the main reason to reach for Iceberg's row-level updates and snapshots. |
+| HL7 v2 and X12 EDI | The two highest-volume formats in production healthcare integration. Neither appears here. |
+| Terminology versioning | Synthea's SNOMED, LOINC, and RxNorm codes are carried as opaque strings. Real code sets are versioned dimensions with valid-from/valid-to (ICD-10 turns over each October, CPT each January). |
+| PHI governance | Synthetic data carries no PHI, so there is no de-identification layer, tokenization, row/column security, or access auditing — all mandatory in production under HIPAA, and stricter still under 42 CFR Part 2 for substance-use records. |
+
+Data from a single synthetic generator is internally consistent by construction. That makes it well suited to exercising a stack end to end, and poorly suited to exercising the inconsistency that dominates the actual work.
+
 ## Architecture
 
 ![Workflow Diagram](./workflow.png)
@@ -27,7 +51,7 @@ Synthea generates synthetic patient records in two formats:
 - CSV exports: patients, encounters, conditions
 - FHIR R4 bundle JSON: one file per patient containing Patient, Encounter, and Condition resources
 
-Synthea runs as a standalone, one-shot container (`make generate-data`) — it is **not** started or triggered by Airflow. This reflects how synthetic/clinical data generation actually works in practice: it's a separate, independently-run process that drops files onto shared storage, decoupled from the orchestration layer that later picks them up. The Airflow DAG detects new output via a file-mtime sensor rather than depending on the Synthea container directly.
+Synthea runs as a standalone, one-shot container (`make generate-data`) — it is **not** started or triggered by Airflow. This mirrors how batch source extracts typically arrive: an upstream system drops files onto shared storage on its own schedule, decoupled from the orchestration layer that later picks them up. The Airflow DAG detects new output via a file-mtime sensor rather than depending on the Synthea container directly.
 
 **2. Staging (Airflow + Python)**
 Six staging tasks run in parallel. Each reads from the shared data volume and uploads Parquet files to MinIO at `s3://healthcare/staging/<table>/`.
@@ -37,13 +61,15 @@ CSV path:
 - `encounters.csv` → `staging/encounters/`
 - `conditions.csv` → `staging/conditions/`
 
-FHIR R4 path:
+FHIR R4 path (bundles read from disk; the production equivalent would be NDJSON retrieved from a Bulk FHIR `$export` job):
 - Patient resources + US Core race/ethnicity extensions → `staging/fhir_patients/`
 - Encounter resources (v3-ActCode class, SNOMED type) → `staging/fhir_encounters/`
 - Condition resources (SNOMED code, clinicalStatus, verificationStatus, onset/abatement) → `staging/fhir_conditions/`
 
 **3. Ingestion (Trino → Polaris)**
 Trino reads from Hive external tables over the MinIO staging Parquet and writes to Polaris-managed Iceberg tables via `CREATE OR REPLACE TABLE ... AS SELECT`. Polaris registers each table in the `iceberg.default` namespace from the moment of creation.
+
+This is a full refresh on every run, not an incremental merge — see [Scope and limitations](#scope-and-limitations).
 
 **4. Transformation (dbt + Trino)**
 dbt models run against Trino, reading and writing within the Polaris catalog:
