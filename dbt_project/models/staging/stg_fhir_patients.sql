@@ -1,7 +1,10 @@
+-- The HIE feed's patient roster. Identifiers are the sending system's own
+-- (HIEPT-*) and share nothing with the EHR extract above; the feed is also
+-- missing fields and carries its own data-entry errors. See dags/hie_feed.py.
 SELECT
     patient_id,
     birth_date,
-    gender,
+    {{ normalize_gender('gender') }}                                AS gender,
     family_name,
     given_name,
     family_name || ', ' || given_name                               AS full_name,

@@ -11,9 +11,16 @@ clean-targets:
   - "target"
   - "dbt_packages"
 
+snapshot-paths: ["snapshots"]
+
 models:
   healthcare_project:
     staging:
       +materialized: view
+    # The candidate-scoring model is read by three downstream models and its
+    # blocking join is the most expensive step in the project, so the
+    # intermediate layer is materialized rather than inlined as views.
+    intermediate:
+      +materialized: table
     marts:
       +materialized: table

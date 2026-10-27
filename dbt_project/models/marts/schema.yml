@@ -23,3 +23,114 @@ models:
         tests:
           - dbt_utils.expression_is_true:
               expression: ">= encounter_start"
+      - name: mpi_id
+        description: >
+          Master identity this encounter's patient resolved to. Every live EHR
+          patient gets an identity even when unmatched, so this is populated
+          in the normal case. It is legitimately null when the patient's
+          registration has been voided, since voided registrations are
+          excluded from identity resolution -- hence warn rather than error.
+        tests:
+          - not_null:
+              config:
+                severity: warn
+      - name: revision
+        tests:
+          - not_null
+
+  - name: dim_patient_master
+    description: >
+      Master patient index. One row per person the warehouse believes exists,
+      after linking the EHR extract against the HIE feed.
+    columns:
+      - name: mpi_id
+        tests:
+          - unique
+          - not_null
+      - name: ehr_patient_id
+        description: Null for identities known only to the HIE feed.
+        tests:
+          # The unique test ignores nulls, so this asserts the real invariant:
+          # no EHR patient is split across two master identities.
+          - unique
+      - name: hie_patient_id
+        description: Null for identities with no accepted HIE match.
+        tests:
+          # Likewise, and the stronger of the two: an HIE record attached to
+          # two identities would mean the mutual-best reduction failed and one
+          # person's records are being double-counted.
+          - unique
+      - name: record_source
+        tests:
+          - not_null
+          - accepted_values:
+              values:
+                - both
+                - ehr_only
+                - ehr_only_pending_review
+                - hie_only
+                - hie_only_duplicate_suspect
+      - name: match_score
+        description: Null unless record_source is 'both'.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 85
+              max_value: 100
+              config:
+                # Only accepted links carry a score, and by construction every
+                # accepted link scored at or above the auto threshold.
+                where: "record_source = 'both'"
+      - name: birth_date
+        tests:
+          - not_null
+      - name: age
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+
+  - name: rpt_identity_conflicts
+    description: >
+      Field-level disagreement among record pairs that were linked anyway.
+      One row per linked pair.
+    columns:
+      - name: mpi_id
+        tests:
+          - unique
+          - not_null
+      - name: conflict_count
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 4
+
+  - name: rpt_identity_reconciliation
+    description: Linkage and conflict summary, one row per metric.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - category
+            - metric
+    columns:
+      - name: category
+        tests:
+          - accepted_values:
+              values: ['volume', 'linkage', 'conflicts', 'scoring']
+      - name: value
+        tests:
+          - not_null
+
+  - name: rpt_encounter_restatements
+    description: >
+      Encounter counts and claim totals grouped by how many times the source
+      has restated the row.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - revision
+            - is_voided
+    columns:
+      - name: revision
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 1"

@@ -56,12 +56,29 @@ models:
           - not_null
 
   - name: stg_patients
+    description: >
+      EHR patient extract after corrections are merged. One row per patient_id
+      regardless of how many times the source has restated it.
     columns:
       - name: patient_id
         tests:
           - unique
           - not_null
       - name: birth_date
+        tests:
+          - not_null
+      - name: gender
+        description: Normalized from the extract's 'M'/'F' to the FHIR value set.
+        tests:
+          - accepted_values:
+              values: ['male', 'female', 'other', 'unknown']
+      - name: revision
+        description: Times the source has corrected this row since it first loaded.
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 1"
+      - name: source_updated_at
         tests:
           - not_null
       - name: age
@@ -100,3 +117,11 @@ models:
         tests:
           - dbt_utils.expression_is_true:
               expression: ">= 0"
+      - name: revision
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= 1"
+      - name: source_updated_at
+        tests:
+          - not_null

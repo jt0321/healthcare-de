@@ -1,0 +1,63 @@
+models:
+  - name: int_identity_ehr
+    description: Standardized identity attributes from the local EHR extract.
+    columns:
+      - name: ehr_patient_id
+        tests:
+          - unique
+          - not_null
+      - name: gender
+        tests:
+          - accepted_values:
+              values: ['male', 'female', 'other', 'unknown']
+
+  - name: int_identity_hie
+    description: Standardized identity attributes from the HIE feed.
+    columns:
+      - name: hie_patient_id
+        tests:
+          - unique
+          - not_null
+      - name: gender
+        tests:
+          - accepted_values:
+              values: ['male', 'female', 'other', 'unknown']
+
+  - name: int_patient_match_candidates
+    description: >
+      Every (EHR patient, HIE record) pair surviving blocking, with its
+      weighted agreement score and tier.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - ehr_patient_id
+            - hie_patient_id
+    columns:
+      - name: match_score
+        tests:
+          - not_null
+          # Weights are hand-set to total 100 at full agreement, and the two
+          # negative components floor at -20. A score outside this range means
+          # a weight was changed without the thresholds being revisited.
+          - dbt_utils.accepted_range:
+              min_value: -20
+              max_value: 100
+      - name: match_tier
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['auto', 'review', 'reject']
+      - name: match_method
+        tests:
+          - accepted_values:
+              values: ['deterministic', 'probabilistic']
+
+  - name: int_patient_match_best
+    description: >
+      Candidate pairs above the reject threshold, ranked from each side, with
+      the mutual-best pairing flagged.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - ehr_patient_id
+            - hie_patient_id

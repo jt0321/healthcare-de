@@ -1,9 +1,22 @@
+-- The local EHR's nightly patient extract, after corrections have been merged.
+-- Voided rows are kept but flagged: a retracted registration is part of the
+-- record, and downstream models decide whether to count it.
 SELECT
     patient_id,
     birth_date,
+    first_name,
+    last_name,
     full_name,
-    gender,
+    {{ normalize_gender('gender') }}                                AS gender,
     race,
+    ethnicity,
+    city,
+    state,
+    postal_code,
+    is_voided,
+    source_updated_at,
+    revision,
+    revision > 1                                                    AS is_restated,
     date_diff('year', birth_date, current_date)                     AS age,
     CASE
         WHEN date_diff('year', birth_date, current_date) < 18  THEN '0-17'
