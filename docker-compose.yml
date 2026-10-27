@@ -83,9 +83,29 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.synthea
+    # Behind a profile so `docker compose up` does not start it. Synthea
+    # overwrites the CSV extracts in place, so an accidental start midway
+    # through a pipeline run leaves the CSV and FHIR exports describing
+    # different populations.
+    profiles: ["generators"]
     volumes:
       - ./data:/output
     command: -p 1000 --exporter.csv.export=true --exporter.fhir.export=true
+
+  # Late-arriving correction feed. Runs one-shot like synthea, and for the same
+  # reason: it is an upstream system emitting a new batch of restatements onto
+  # shared storage, not a step the orchestrator owns.
+  amender:
+    image: python:3.12-slim
+    # Profiled for the same reason as synthea: each start emits a new batch of
+    # corrections, which is not something `docker compose up` should do.
+    profiles: ["generators"]
+    environment:
+      HEALTHCARE_DATA_DIR: /data
+    volumes:
+      - ./data:/data
+      - ./scripts:/scripts:ro
+    entrypoint: ["python", "-I", "/scripts/simulate_amendments.py"]
 
   postgres:
     image: postgres:13

@@ -1,4 +1,4 @@
-.PHONY: help up down build restart logs clean ps generate-data airflow-init airflow dbt-compile dbt-run dbt-test streamlit trigger-ingest trino-cli
+.PHONY: help up down build restart logs clean ps generate-data simulate-amendments airflow-init airflow dbt-compile dbt-run dbt-test streamlit trigger-ingest trino-cli
 
 # Default target
 help:
@@ -13,6 +13,7 @@ help:
 	@echo ""
 	@echo "Data Pipeline Tasks:"
 	@echo "  make generate-data   - Run the Synthea service to generate synthetic patient data"
+	@echo "  make simulate-amendments - Emit a batch of late-arriving corrections to data/delta/"
 	@echo "  make airflow-init    - Initialize Airflow database and create admin user"
 	@echo "  make airflow         - Start Airflow webserver and scheduler"
 	@echo "  make trigger-ingest  - Trigger the healthcare_data_pipeline DAG to move data to Iceberg"
@@ -46,7 +47,11 @@ ps:
 # Pipeline-specific commands
 
 generate-data:
-	docker compose up synthea
+	docker compose --profile generators up synthea
+
+# ARGS passes flags through, e.g. make simulate-amendments ARGS="--seed 42 --amend-rate 0.05"
+simulate-amendments:
+	docker compose --profile generators run --rm amender $(ARGS)
 
 airflow-init:
 	docker compose up airflow-init
