@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1400" viewBox="0 0 2400 1400">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="#ffffff"/></marker><marker id="arrowdim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 1 L 9 5 L 0 9 z" fill="#6a6a6a"/></marker></defs>
+<rect width="2400" height="1400" fill="#000000"/>
+<text x="120" y="128" font-family="Poppins" font-size="74" font-weight="bold" fill="#ffffff" text-anchor="start">healthcare-de</text>
+<text x="124" y="180" font-family="Poppins" font-size="31" font-weight="normal" fill="#9a9a9a" text-anchor="start">End-to-End Healthcare Lakehouse</text>
+<text x="122" y="300" font-family="Poppins" font-size="19" font-weight="bold" fill="#6a6a6a" text-anchor="start" letter-spacing="4.5">SOURCE SYSTEMS</text>
+<text x="547" y="300" font-family="Poppins" font-size="19" font-weight="bold" fill="#6a6a6a" text-anchor="start" letter-spacing="4.5">INGEST</text>
+<text x="972" y="300" font-family="Poppins" font-size="19" font-weight="bold" fill="#6a6a6a" text-anchor="start" letter-spacing="4.5">LAKEHOUSE</text>
+<text x="1477" y="300" font-family="Poppins" font-size="19" font-weight="bold" fill="#6a6a6a" text-anchor="start" letter-spacing="4.5">TRANSFORM</text>
+<text x="2002" y="300" font-family="Poppins" font-size="19" font-weight="bold" fill="#6a6a6a" text-anchor="start" letter-spacing="4.5">SERVE</text>
+<rect x="120" y="402.5" width="320" height="142" rx="10" fill="none" stroke="#ffffff" stroke-width="1.8"/>
+<text x="146" y="448.5" font-family="Poppins" font-size="28" font-weight="bold" fill="#ffffff" text-anchor="start">EHR extract</text>
+<text x="146" y="486.5" font-family="Poppins" font-size="18" font-weight="normal" fill="#9a9a9a" text-anchor="start">patients · encounters</text>
+<text x="146" y="517.5" font-family="Poppins" font-size="18" font-weight="normal" fill="#9a9a9a" text-anchor="start">conditions · CSV, nightly</text>
+<rect x="120" y="588.5" width="320" height="173" rx="10" fill="none" stroke="#ffffff" stroke-width="1.8"/>
+<text x="146" y="634.5" font-family="Poppins" font-size="28" font-weight="bold" fill="#ffffff" text-anchor="start">HIE feed</text>
+<text x="146" y="672.5" font-family="Poppins" font-size="18" font-weight="normal" fill="#9a9a9a" text-anchor="start">FHIR R4 bundles in the</text>
+<text x="146" y="703.5" font-family="Poppins" font-size="18" font-weight="normal" fill="#9a9a9a" text-anchor="start">sender&#x27;s own id space</text>
+<text x="146" y="734.5" font-family="Poppins" font-size="18" font-weight="normal" fill="#9a9a9a" text-anchor="start">demographics drift</text>
+<rect x="120" y="805.5" width="320" height="142" rx="10" fill="none" stroke="#ffffff" stroke-width="1.8"/>
+<text x="146" y="851.5" font-family="Poppins" font-size="28" font-weight="bold" fill="#ffffff" text-anchor="start">Corrections</text>
+<text x="146" y="889.5" font-family="Poppins" font-size="18" font-weight="normal" fill="#9a9a9a" text-anchor="start">data/delta/*.csv</text>
+<text x="146" y="920.5" font-family="Poppins" font-size="18" font-weight="normal" fill="#9a9a9a" text-anchor="start">repriced · recoded · voided</text>
+<text x="120" y="1065" font-family="Poppins" font-size="19" font-weight="normal" fill="#6a6a6a" text-anchor="start">Run by hand, behind a Compose profile. Airflow never</text>
+<text x="120" y="1094" font-family="Poppins" font-size="19" font-weight="normal" fill="#6a6a6a" text-anchor="start">starts them — it only notices what they leave behind.</text>
+<rect x="545" y="350" width="320" height="650" rx="14" fill="none" stroke="#ffffff" stroke-width="2.5"/>
+<text x="571" y="402" font-family="Poppins" font-size="30" font-weight="bold" fill="#ffffff" text-anchor="start">Airflow tasks</text>
+<rect x="567" y="505.0" width="276" height="173" rx="10" fill="none" stroke="#4f4f4f" stroke-width="1.8"/>
+<text x="593" y="551.0" font-family="Poppins" font-size="27" font-weight="bold" fill="#ffffff" text-anchor="start">File sensor</text>
+<text x="593" y="589.0" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">watches mtime across</text>
+<text x="593" y="620.0" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">the shared volume,</text>
+<text x="593" y="651.0" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">deltas included</text>
+<rect x="567" y="708.0" width="276" height="204" rx="10" fill="none" stroke="#4f4f4f" stroke-width="1.8"/>
+<text x="593" y="754.0" font-family="Poppins" font-size="27" font-weight="bold" fill="#ffffff" text-anchor="start">Stage ×6</text>
+<text x="593" y="792.0" font-family="Poppins" font-size="17" font-weight="normal" fill="#9a9a9a" text-anchor="start">every version of a row,</text>
+<text x="593" y="823.0" font-family="Poppins" font-size="17" font-weight="normal" fill="#9a9a9a" text-anchor="start">not just the newest</text>
+<text x="593" y="854.0" font-family="Poppins" font-size="17" font-weight="normal" fill="#9a9a9a" text-anchor="start">Parquet into MinIO</text>
+<text x="593" y="885.0" font-family="Poppins" font-size="17" font-weight="normal" fill="#9a9a9a" text-anchor="start">s3://healthcare/staging/</text>
+<polyline points="440,473.5 482,473.5" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="440,675.0 482,675.0" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="440,876.5 482,876.5" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="482,473.5 482,876.5" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="482,591.5 499,591.5" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="499,591.5 545,591.5" fill="none" stroke="#ffffff" stroke-width="2.5" marker-end="url(#arrow)" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="970" y="350" width="400" height="650" rx="14" fill="none" stroke="#ffffff" stroke-width="2.5"/>
+<text x="996" y="402" font-family="Poppins" font-size="28" font-weight="bold" fill="#ffffff" text-anchor="start">Trino · Polaris · Iceberg</text>
+<rect x="992" y="505.0" width="356" height="204" rx="10" fill="none" stroke="#4f4f4f" stroke-width="1.8"/>
+<text x="1018" y="551.0" font-family="Poppins" font-size="27" font-weight="bold" fill="#ffffff" text-anchor="start">MERGE INTO</text>
+<text x="1018" y="589.0" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">patients · encounters</text>
+<text x="1018" y="620.0" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">revision · is_voided</text>
+<text x="1018" y="651.0" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">source_updated_at decides</text>
+<text x="1018" y="682.0" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">voids flagged, never deleted</text>
+<rect x="992" y="739.0" width="356" height="173" rx="10" fill="none" stroke="#4f4f4f" stroke-width="1.8"/>
+<text x="1018" y="785.0" font-family="Poppins" font-size="27" font-weight="bold" fill="#ffffff" text-anchor="start">CREATE OR REPLACE</text>
+<text x="1018" y="823.0" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">fhir_patients · fhir_encounters</text>
+<text x="1018" y="854.0" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">fhir_conditions · conditions</text>
+<text x="1018" y="885.0" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">full snapshot, no corrections</text>
+<polyline points="865,810.0 917,810.0" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="917,607.0 917,825.5" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="917,607.0 970,607.0" fill="none" stroke="#ffffff" stroke-width="2.5" marker-end="url(#arrow)" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="917,825.5 970,825.5" fill="none" stroke="#ffffff" stroke-width="2.5" marker-end="url(#arrow)" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="1475" y="350" width="420" height="650" rx="14" fill="none" stroke="#ffffff" stroke-width="2.5"/>
+<text x="1501" y="402" font-family="Poppins" font-size="30" font-weight="bold" fill="#ffffff" text-anchor="start">dbt</text>
+<rect x="1497" y="438.5" width="376" height="142" rx="10" fill="none" stroke="#4f4f4f" stroke-width="1.8"/>
+<text x="1523" y="484.5" font-family="Poppins" font-size="27" font-weight="bold" fill="#ffffff" text-anchor="start">snapshot</text>
+<text x="1523" y="522.5" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">scd_patients — type-2 history</text>
+<text x="1523" y="553.5" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">of patient demographics</text>
+<rect x="1497" y="606.5" width="376" height="142" rx="10" fill="none" stroke="#4f4f4f" stroke-width="1.8"/>
+<text x="1523" y="652.5" font-family="Poppins" font-size="27" font-weight="bold" fill="#ffffff" text-anchor="start">intermediate — EMPI</text>
+<text x="1523" y="690.5" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">standardize · block · score</text>
+<text x="1523" y="721.5" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">mutual-best · survivorship</text>
+<rect x="1497" y="774.5" width="376" height="204" rx="10" fill="none" stroke="#4f4f4f" stroke-width="1.8"/>
+<text x="1523" y="820.5" font-family="Poppins" font-size="27" font-weight="bold" fill="#ffffff" text-anchor="start">marts</text>
+<text x="1523" y="858.5" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">dim_patient_master</text>
+<text x="1523" y="889.5" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">fct_patient_encounters</text>
+<text x="1523" y="920.5" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">rpt_identity_conflicts</text>
+<text x="1523" y="951.5" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">rpt_encounter_restatements</text>
+<polyline points="1370,675.0 1475,675.0" fill="none" stroke="#ffffff" stroke-width="2.5" marker-end="url(#arrow)" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="1685.0,580.5 1685.0,606.5" fill="none" stroke="#ffffff" stroke-width="2" marker-end="url(#arrow)" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="1685.0,748.5 1685.0,774.5" fill="none" stroke="#ffffff" stroke-width="2" marker-end="url(#arrow)" stroke-linejoin="round" stroke-linecap="round"/>
+<rect x="2000" y="573.0" width="280" height="204" rx="10" fill="none" stroke="#ffffff" stroke-width="1.8"/>
+<text x="2026" y="619.0" font-family="Poppins" font-size="28" font-weight="bold" fill="#ffffff" text-anchor="start">Streamlit</text>
+<text x="2026" y="657.0" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">Population</text>
+<text x="2026" y="688.0" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">Clinical · FHIR</text>
+<text x="2026" y="719.0" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">Patient Identity</text>
+<text x="2026" y="750.0" font-family="Poppins" font-size="19" font-weight="normal" fill="#9a9a9a" text-anchor="start">Restatements</text>
+<polyline points="1895,675.0 2000,675.0" fill="none" stroke="#ffffff" stroke-width="2.5" marker-end="url(#arrow)" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="705.0,1175 1685.0,1175" fill="none" stroke="#6a6a6a" stroke-width="2.5" stroke-dasharray="12 12" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="705.0,1175 705.0,1016" fill="none" stroke="#6a6a6a" stroke-width="2.5" stroke-dasharray="12 12" marker-end="url(#arrowdim)" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="1170.0,1175 1170.0,1016" fill="none" stroke="#6a6a6a" stroke-width="2.5" stroke-dasharray="12 12" marker-end="url(#arrowdim)" stroke-linejoin="round" stroke-linecap="round"/>
+<polyline points="1685.0,1175 1685.0,1016" fill="none" stroke="#6a6a6a" stroke-width="2.5" stroke-dasharray="12 12" marker-end="url(#arrowdim)" stroke-linejoin="round" stroke-linecap="round"/>
+<path transform="translate(1180,1278) rotate(0)" d="M 0 0 L 0 -36 A 36 36 0 0 1 18.00 -31.18 Z" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linejoin="round"/>
+<path transform="translate(1180,1278) rotate(90)" d="M 0 0 L 0 -36 A 36 36 0 0 1 18.00 -31.18 Z" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linejoin="round"/>
+<path transform="translate(1180,1278) rotate(180)" d="M 0 0 L 0 -36 A 36 36 0 0 1 18.00 -31.18 Z" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linejoin="round"/>
+<path transform="translate(1180,1278) rotate(270)" d="M 0 0 L 0 -36 A 36 36 0 0 1 18.00 -31.18 Z" fill="none" stroke="#ffffff" stroke-width="2.2" stroke-linejoin="round"/>
+<text x="1246" y="1280" font-family="Poppins" font-size="29" font-weight="bold" fill="#ffffff" text-anchor="start">Apache Airflow</text>
+<text x="1246" y="1314" font-family="Poppins" font-size="20" font-weight="normal" fill="#9a9a9a" text-anchor="start">sensor-driven DAG · one run per batch that lands</text>
+</svg>
